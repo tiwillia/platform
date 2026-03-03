@@ -10,6 +10,7 @@ import (
 	"ambient-code-public-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // ListSessions handles GET /v1/sessions
@@ -219,6 +220,124 @@ func DeleteSession(c *gin.Context) {
 		return
 	}
 	forwardErrorResponse(c, resp.StatusCode, body)
+}
+
+// SendMessage handles POST /v1/sessions/:id/message
+func SendMessage(c *gin.Context) {
+	project := GetProject(c)
+	if !ValidateProjectName(project) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project name"})
+		return
+	}
+	sessionID := c.Param("id")
+	if !ValidateSessionID(sessionID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session ID"})
+		return
+	}
+
+	var req types.SendMessageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Build AG-UI RunAgentInput
+	runID := uuid.NewString()
+	aguiReq := map[string]interface{}{
+		"run_id":    runID,
+		"thread_id": sessionID,
+		"messages": []map[string]interface{}{
+			{"id": uuid.NewString(), "role": "user", "content": req.Content},
+		},
+	}
+
+	reqBody, err := json.Marshal(aguiReq)
+	if err != nil {
+		log.Printf("Failed to marshal AG-UI request: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s/agui/run", project, sessionID)
+
+	resp, err := ProxyRequest(c, http.MethodPost, path, reqBody)
+	if err != nil {
+		log.Printf("Backend request failed for send message to session %s: %v", sessionID, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Failed to read backend response: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		forwardErrorResponse(c, resp.StatusCode, respBody)
+		return
+	}
+
+	c.JSON(http.StatusAccepted, types.SendMessageResponse{
+		RunID:    runID,
+		ThreadID: sessionID,
+	})
+}
+
+// GetSessionOutput handles GET /v1/sessions/:id/output
+func GetSessionOutput(c *gin.Context) {
+	project := GetProject(c)
+	if !ValidateProjectName(project) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project name"})
+		return
+	}
+	sessionID := c.Param("id")
+	if !ValidateSessionID(sessionID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session ID"})
+		return
+	}
+
+	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s/export", project, sessionID)
+
+	resp, err := ProxyRequest(c, http.MethodGet, path, nil)
+	if err != nil {
+		log.Printf("Backend request failed for session output %s: %v", sessionID, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Failed to read backend response: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		forwardErrorResponse(c, resp.StatusCode, body)
+		return
+	}
+
+	// Parse backend ExportResponse to extract aguiEvents
+	var backendResp map[string]json.RawMessage
+	if err := json.Unmarshal(body, &backendResp); err != nil {
+		log.Printf("Failed to parse backend export response: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	events := json.RawMessage("[]")
+	if aguiEvents, ok := backendResp["aguiEvents"]; ok {
+		events = aguiEvents
+	}
+
+	c.JSON(http.StatusOK, types.SessionOutputResponse{
+		SessionID: sessionID,
+		Events:    events,
+	})
 }
 
 // forwardErrorResponse forwards backend error with consistent JSON format

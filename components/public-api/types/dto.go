@@ -1,5 +1,7 @@
 package types
 
+import "encoding/json"
+
 // SessionResponse is the simplified session response for the public API
 type SessionResponse struct {
 	ID          string `json:"id"`
@@ -29,6 +31,23 @@ type CreateSessionRequest struct {
 type Repo struct {
 	URL    string `json:"url" binding:"required"`
 	Branch string `json:"branch,omitempty"`
+}
+
+// SendMessageRequest is the request body for sending a message to a session
+type SendMessageRequest struct {
+	Content string `json:"content" binding:"required"`
+}
+
+// SendMessageResponse is the response after sending a message
+type SendMessageResponse struct {
+	RunID    string `json:"run_id"`
+	ThreadID string `json:"thread_id"`
+}
+
+// SessionOutputResponse is the response for getting session output
+type SessionOutputResponse struct {
+	SessionID string          `json:"session_id"`
+	Events    json.RawMessage `json:"events"`
 }
 
 // ErrorResponse is a standard error response

@@ -96,6 +96,8 @@ func main() {
 		v1.POST("/sessions", handlers.CreateSession)
 		v1.GET("/sessions/:id", handlers.GetSession)
 		v1.DELETE("/sessions/:id", handlers.DeleteSession)
+		v1.POST("/sessions/:id/message", handlers.SendMessage)
+		v1.GET("/sessions/:id/output", handlers.GetSessionOutput)
 	}
 
 	// Get port from environment or default to 8081
