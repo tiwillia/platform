@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"log"
@@ -51,12 +50,12 @@ func ProxyRequest(c *gin.Context, method, path string, body []byte) (*http.Respo
 		bodyReader = bytes.NewReader(body)
 	}
 
-	// Create context with explicit timeout (in addition to HTTP client timeout)
-	// This ensures we respect context cancellation from the client
-	ctx, cancel := context.WithTimeout(c.Request.Context(), BackendTimeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
+	// Use the request context for client disconnect propagation.
+	// Timeout is enforced by HTTPClient.Timeout — do NOT wrap with
+	// context.WithTimeout here, because callers read resp.Body after
+	// ProxyRequest returns; a deferred cancel() would kill the context
+	// (and the body read) as soon as this function exits.
+	req, err := http.NewRequestWithContext(c.Request.Context(), method, fullURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
