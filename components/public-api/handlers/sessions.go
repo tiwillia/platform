@@ -287,6 +287,7 @@ func SendMessage(c *gin.Context) {
 }
 
 // GetSessionOutput handles GET /v1/sessions/:id/output
+// Supports optional ?run_id=<uuid> query param to filter events by run.
 func GetSessionOutput(c *gin.Context) {
 	project := GetProject(c)
 	if !ValidateProjectName(project) {
@@ -299,13 +300,90 @@ func GetSessionOutput(c *gin.Context) {
 		return
 	}
 
+	events, err := fetchSessionEvents(c, project, sessionID)
+	if err != nil {
+		return // fetchSessionEvents already wrote the error response
+	}
+
+	// If run_id query param is present, filter events to that run
+	runID := c.Query("run_id")
+	if runID != "" {
+		if _, uuidErr := uuid.Parse(runID); uuidErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid run_id: must be a valid UUID"})
+			return
+		}
+
+		filtered := filterEventsByRunID(events, runID)
+		if len(filtered) == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Run not found"})
+			return
+		}
+
+		filteredJSON, marshalErr := json.Marshal(filtered)
+		if marshalErr != nil {
+			log.Printf("Failed to marshal filtered events: %v", marshalErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+			return
+		}
+
+		c.JSON(http.StatusOK, types.SessionOutputResponse{
+			SessionID: sessionID,
+			Events:    json.RawMessage(filteredJSON),
+		})
+		return
+	}
+
+	// No run_id filter — return all events
+	allEventsJSON, marshalErr := json.Marshal(events)
+	if marshalErr != nil {
+		log.Printf("Failed to marshal events: %v", marshalErr)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, types.SessionOutputResponse{
+		SessionID: sessionID,
+		Events:    json.RawMessage(allEventsJSON),
+	})
+}
+
+// GetSessionRuns handles GET /v1/sessions/:id/runs
+// Returns a summary of all AG-UI runs in the session.
+func GetSessionRuns(c *gin.Context) {
+	project := GetProject(c)
+	if !ValidateProjectName(project) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project name"})
+		return
+	}
+	sessionID := c.Param("id")
+	if !ValidateSessionID(sessionID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session ID"})
+		return
+	}
+
+	events, err := fetchSessionEvents(c, project, sessionID)
+	if err != nil {
+		return // fetchSessionEvents already wrote the error response
+	}
+
+	runs := buildRunSummaries(events)
+
+	c.JSON(http.StatusOK, types.SessionRunsResponse{
+		SessionID: sessionID,
+		Runs:      runs,
+	})
+}
+
+// fetchSessionEvents calls the backend export endpoint and returns parsed AG-UI events.
+// On error, it writes the HTTP error response to c and returns a non-nil error.
+func fetchSessionEvents(c *gin.Context, project, sessionID string) ([]map[string]interface{}, error) {
 	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s/export", project, sessionID)
 
 	resp, err := ProxyRequest(c, http.MethodGet, path, nil)
 	if err != nil {
 		log.Printf("Backend request failed for session output %s: %v", sessionID, err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
-		return
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -313,12 +391,12 @@ func GetSessionOutput(c *gin.Context) {
 	if err != nil {
 		log.Printf("Failed to read backend response: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
-		return
+		return nil, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		forwardErrorResponse(c, resp.StatusCode, body)
-		return
+		return nil, fmt.Errorf("backend returned status %d", resp.StatusCode)
 	}
 
 	// Parse backend ExportResponse to extract aguiEvents
@@ -326,18 +404,124 @@ func GetSessionOutput(c *gin.Context) {
 	if err := json.Unmarshal(body, &backendResp); err != nil {
 		log.Printf("Failed to parse backend export response: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
-		return
+		return nil, err
 	}
 
-	events := json.RawMessage("[]")
+	eventsRaw := json.RawMessage("[]")
 	if aguiEvents, ok := backendResp["aguiEvents"]; ok {
-		events = aguiEvents
+		eventsRaw = aguiEvents
 	}
 
-	c.JSON(http.StatusOK, types.SessionOutputResponse{
-		SessionID: sessionID,
-		Events:    events,
-	})
+	var events []map[string]interface{}
+	if err := json.Unmarshal(eventsRaw, &events); err != nil {
+		log.Printf("Failed to parse AG-UI events: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return nil, err
+	}
+
+	return events, nil
+}
+
+// filterEventsByRunID returns only events whose "runId" field matches the given run ID.
+func filterEventsByRunID(events []map[string]interface{}, runID string) []map[string]interface{} {
+	var filtered []map[string]interface{}
+	for _, event := range events {
+		if eventRunID, ok := event["runId"].(string); ok && eventRunID == runID {
+			filtered = append(filtered, event)
+		}
+	}
+	return filtered
+}
+
+// buildRunSummaries scans AG-UI events and builds a summary for each run.
+func buildRunSummaries(events []map[string]interface{}) []types.RunSummary {
+	type runState struct {
+		summary types.RunSummary
+		order   int
+	}
+
+	runs := make(map[string]*runState)
+	orderCounter := 0
+
+	for _, event := range events {
+		runID, ok := event["runId"].(string)
+		if !ok || runID == "" {
+			continue
+		}
+
+		state, exists := runs[runID]
+		if !exists {
+			state = &runState{
+				summary: types.RunSummary{
+					RunID:  runID,
+					Status: "running",
+				},
+				order: orderCounter,
+			}
+			orderCounter++
+			runs[runID] = state
+		}
+		state.summary.EventCount++
+
+		eventType, _ := event["type"].(string)
+		switch eventType {
+		case "RUN_STARTED":
+			if ts, ok := toInt64(event["timestamp"]); ok {
+				state.summary.StartedAt = ts
+			}
+		case "RUN_FINISHED":
+			state.summary.Status = "completed"
+			if ts, ok := toInt64(event["timestamp"]); ok {
+				state.summary.FinishedAt = ts
+			}
+		case "RUN_ERROR":
+			state.summary.Status = "error"
+			if ts, ok := toInt64(event["timestamp"]); ok {
+				state.summary.FinishedAt = ts
+			}
+		case "TEXT_MESSAGE_START":
+			// Capture the user message that started this run
+			if role, ok := event["role"].(string); ok && role == "user" {
+				if content, ok := event["content"].(string); ok && state.summary.UserMessage == "" {
+					state.summary.UserMessage = content
+				}
+			}
+		}
+	}
+
+	// Sort by order of first appearance
+	result := make([]types.RunSummary, 0, len(runs))
+	ordered := make([]*runState, 0, len(runs))
+	for _, state := range runs {
+		ordered = append(ordered, state)
+	}
+	for i := 0; i < len(ordered)-1; i++ {
+		for j := i + 1; j < len(ordered); j++ {
+			if ordered[j].order < ordered[i].order {
+				ordered[i], ordered[j] = ordered[j], ordered[i]
+			}
+		}
+	}
+	for _, state := range ordered {
+		result = append(result, state.summary)
+	}
+
+	return result
+}
+
+// toInt64 attempts to extract an int64 from an interface value (handles JSON number types).
+func toInt64(v interface{}) (int64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int64(n), true
+	case int64:
+		return n, true
+	case json.Number:
+		i, err := n.Int64()
+		return i, err == nil
+	default:
+		return 0, false
+	}
 }
 
 // forwardErrorResponse forwards backend error with consistent JSON format

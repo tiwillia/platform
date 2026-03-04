@@ -50,6 +50,22 @@ type SessionOutputResponse struct {
 	Events    json.RawMessage `json:"events"`
 }
 
+// RunSummary represents a single AG-UI run within a session
+type RunSummary struct {
+	RunID       string `json:"run_id"`
+	StartedAt   int64  `json:"started_at,omitempty"`
+	FinishedAt  int64  `json:"finished_at,omitempty"`
+	Status      string `json:"status"`
+	UserMessage string `json:"user_message,omitempty"`
+	EventCount  int    `json:"event_count"`
+}
+
+// SessionRunsResponse is the response for listing runs in a session
+type SessionRunsResponse struct {
+	SessionID string       `json:"session_id"`
+	Runs      []RunSummary `json:"runs"`
+}
+
 // ErrorResponse is a standard error response
 type ErrorResponse struct {
 	Error   string `json:"error"`

@@ -30,6 +30,10 @@ MCP ──────┘
 | POST | `/v1/sessions` | Create session |
 | GET | `/v1/sessions/:id` | Get session details |
 | DELETE | `/v1/sessions/:id` | Delete session |
+| POST | `/v1/sessions/:id/message` | Send a message (creates a new run) |
+| GET | `/v1/sessions/:id/output` | Get session output (all AG-UI events) |
+| GET | `/v1/sessions/:id/output?run_id=<uuid>` | Get output filtered to a single run |
+| GET | `/v1/sessions/:id/runs` | List all runs in a session |
 
 ### Health & Monitoring
 
@@ -122,6 +126,29 @@ curl -X DELETE \
      -H "Authorization: Bearer $TOKEN" \
      -H "X-Ambient-Project: my-project" \
      http://localhost:8081/v1/sessions/session-123
+
+# Send a message
+curl -X POST \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "X-Ambient-Project: my-project" \
+     -H "Content-Type: application/json" \
+     -d '{"content": "Fix the auth bug"}' \
+     http://localhost:8081/v1/sessions/session-123/message
+
+# Get all output
+curl -H "Authorization: Bearer $TOKEN" \
+     -H "X-Ambient-Project: my-project" \
+     http://localhost:8081/v1/sessions/session-123/output
+
+# List runs
+curl -H "Authorization: Bearer $TOKEN" \
+     -H "X-Ambient-Project: my-project" \
+     http://localhost:8081/v1/sessions/session-123/runs
+
+# Get output for a specific run
+curl -H "Authorization: Bearer $TOKEN" \
+     -H "X-Ambient-Project: my-project" \
+     "http://localhost:8081/v1/sessions/session-123/output?run_id=550e8400-e29b-41d4-a716-446655440000"
 
 # Check metrics
 curl http://localhost:8081/metrics
