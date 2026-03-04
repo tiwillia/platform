@@ -244,8 +244,8 @@ func SendMessage(c *gin.Context) {
 	// Build AG-UI RunAgentInput
 	runID := uuid.NewString()
 	aguiReq := map[string]interface{}{
-		"run_id":    runID,
-		"thread_id": sessionID,
+		"runId":    runID,
+		"threadId": sessionID,
 		"messages": []map[string]interface{}{
 			{"id": uuid.NewString(), "role": "user", "content": req.Content},
 		},
