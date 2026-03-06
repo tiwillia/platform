@@ -98,6 +98,35 @@ func ValidateSecretAccess(ctx context.Context, k8sClient kubernetes.Interface, n
 	return nil
 }
 
+// resolveProjectOwner finds the human user who owns a project by looking up
+// RoleBindings with the ambient-project-admin ClusterRole. Returns the first
+// User subject found, or ("", error) if none exists.
+// Uses the backend service account (K8sClient) since the caller's token may
+// not have permission to list RoleBindings.
+func resolveProjectOwner(ctx context.Context, project string) (string, error) {
+	if K8sClient == nil {
+		return "", fmt.Errorf("backend K8sClient not available")
+	}
+
+	bindings, err := K8sClient.RbacV1().RoleBindings(project).List(ctx, v1.ListOptions{})
+	if err != nil {
+		return "", fmt.Errorf("list RoleBindings in %s: %w", project, err)
+	}
+
+	for _, rb := range bindings.Items {
+		if rb.RoleRef.Kind != "ClusterRole" || rb.RoleRef.Name != "ambient-project-admin" {
+			continue
+		}
+		for _, subject := range rb.Subjects {
+			if subject.Kind == "User" && strings.TrimSpace(subject.Name) != "" {
+				return subject.Name, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no User with ambient-project-admin role found in project %s", project)
+}
+
 // resolveTokenIdentity uses SelfSubjectReview to determine the authenticated
 // user's identity from their bearer token. Returns (username, nil) on success.
 // This is used when no forwarded identity headers are present (headless/API callers).

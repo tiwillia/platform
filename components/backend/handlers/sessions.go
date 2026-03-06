@@ -771,6 +771,9 @@ func CreateSession(c *gin.Context) {
 	// Add userContext from authenticated caller identity.
 	// Prefer forwarded headers (OAuth proxy); fall back to SelfSubjectReview
 	// for headless/API callers that authenticate directly with a bearer token.
+	// When the caller is a service account, resolve the project owner from
+	// RBAC RoleBindings so that credentials (e.g. GitHub PAT) are looked up
+	// under the human user who owns the workspace.
 	{
 		uidVal, _ := c.Get("userID")
 		uid, _ := uidVal.(string)
@@ -780,6 +783,17 @@ func CreateSession(c *gin.Context) {
 			if resolved, err := resolveTokenIdentity(c.Request.Context(), reqK8s); err == nil {
 				uid = strings.ReplaceAll(resolved, ":", "-")
 				log.Printf("Resolved token identity via SelfSubjectReview: %s", uid)
+
+				// Service accounts should not be the session owner — resolve
+				// the human project owner from RBAC instead.
+				if strings.HasPrefix(uid, "system-serviceaccount-") {
+					if owner, err := resolveProjectOwner(c.Request.Context(), project); err == nil && owner != "" {
+						log.Printf("Resolved project owner %q for SA caller %q in project %q", owner, uid, project)
+						uid = owner
+					} else {
+						log.Printf("Could not resolve project owner for SA caller %q in project %q: %v", uid, project, err)
+					}
+				}
 			} else {
 				log.Printf("Could not resolve token identity: %v", err)
 			}
