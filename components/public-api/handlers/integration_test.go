@@ -109,8 +109,8 @@ func TestE2E_CreateSession(t *testing.T) {
 	}
 
 	// Verify request body was transformed correctly
-	if !strings.Contains(requestBody, "prompt") {
-		t.Errorf("Expected request body to contain 'prompt', got %s", requestBody)
+	if !strings.Contains(requestBody, "initialPrompt") {
+		t.Errorf("Expected request body to contain 'initialPrompt', got %s", requestBody)
 	}
 }
 

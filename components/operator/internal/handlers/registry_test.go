@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"testing"
+	"time"
 
 	"ambient-code-operator/internal/config"
 
@@ -107,10 +109,18 @@ func testRegistryJSON() string {
 	return string(data)
 }
 
-// setupRegistryConfigMap creates a fake K8s client with the registry ConfigMap and
-// clears the in-memory cache so tests get fresh data.
+// setupRegistryConfigMap writes the test registry JSON to a temp file, sets AGENT_REGISTRY_PATH,
+// sets up a fake K8s client, and clears the in-memory cache so tests get fresh data.
 func setupRegistryConfigMap(t *testing.T, namespace string) {
 	t.Helper()
+
+	// Write registry JSON to a temp file and point env var to it
+	dir := t.TempDir()
+	path := dir + "/agent-registry.json"
+	if err := os.WriteFile(path, []byte(testRegistryJSON()), 0644); err != nil {
+		t.Fatalf("Failed to write test registry file: %v", err)
+	}
+	t.Setenv("AGENT_REGISTRY_PATH", path)
 
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -126,6 +136,7 @@ func setupRegistryConfigMap(t *testing.T, namespace string) {
 	// Clear registry cache so each test starts fresh
 	runtimeRegistryCacheMu.Lock()
 	runtimeRegistryCache = nil
+	runtimeRegistryCacheTime = time.Time{}
 	runtimeRegistryCacheMu.Unlock()
 }
 
