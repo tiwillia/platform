@@ -34,6 +34,9 @@ MCP ──────┘
 | GET | `/v1/sessions/:id/output` | Get session output (all AG-UI events) |
 | GET | `/v1/sessions/:id/output?run_id=<uuid>` | Get output filtered to a single run |
 | GET | `/v1/sessions/:id/runs` | List all runs in a session |
+| POST | `/v1/sessions/:id/start` | Resume a stopped session |
+| POST | `/v1/sessions/:id/stop` | Stop a session (kills the session) |
+| POST | `/v1/sessions/:id/interrupt` | Interrupt the current run (session stays running) |
 
 ### Health & Monitoring
 
@@ -144,6 +147,24 @@ curl -H "Authorization: Bearer $TOKEN" \
 curl -H "Authorization: Bearer $TOKEN" \
      -H "X-Ambient-Project: my-project" \
      http://localhost:8081/v1/sessions/session-123/runs
+
+# Start (resume) a stopped session
+curl -X POST \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "X-Ambient-Project: my-project" \
+     http://localhost:8081/v1/sessions/session-123/start
+
+# Stop a session (kills the session)
+curl -X POST \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "X-Ambient-Project: my-project" \
+     http://localhost:8081/v1/sessions/session-123/stop
+
+# Interrupt the current run (session stays running)
+curl -X POST \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "X-Ambient-Project: my-project" \
+     http://localhost:8081/v1/sessions/session-123/interrupt
 
 # Get output for a specific run
 curl -H "Authorization: Bearer $TOKEN" \

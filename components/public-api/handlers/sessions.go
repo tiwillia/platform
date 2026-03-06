@@ -378,6 +378,131 @@ func GetSessionRuns(c *gin.Context) {
 	})
 }
 
+// StartSession handles POST /v1/sessions/:id/start
+func StartSession(c *gin.Context) {
+	project := GetProject(c)
+	if !ValidateProjectName(project) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project name"})
+		return
+	}
+	sessionID := c.Param("id")
+	if !ValidateSessionID(sessionID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session ID"})
+		return
+	}
+	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s/start", project, sessionID)
+
+	resp, err := ProxyRequest(c, http.MethodPost, path, nil)
+	if err != nil {
+		log.Printf("Backend request failed for start session %s: %v", sessionID, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Failed to read backend response: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		forwardErrorResponse(c, resp.StatusCode, body)
+		return
+	}
+
+	var backendResp map[string]interface{}
+	if err := json.Unmarshal(body, &backendResp); err != nil {
+		log.Printf("Failed to parse backend response: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusAccepted, transformSession(backendResp))
+}
+
+// StopSession handles POST /v1/sessions/:id/stop
+func StopSession(c *gin.Context) {
+	project := GetProject(c)
+	if !ValidateProjectName(project) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project name"})
+		return
+	}
+	sessionID := c.Param("id")
+	if !ValidateSessionID(sessionID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session ID"})
+		return
+	}
+	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s/stop", project, sessionID)
+
+	resp, err := ProxyRequest(c, http.MethodPost, path, nil)
+	if err != nil {
+		log.Printf("Backend request failed for stop session %s: %v", sessionID, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Failed to read backend response: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		forwardErrorResponse(c, resp.StatusCode, body)
+		return
+	}
+
+	var backendResp map[string]interface{}
+	if err := json.Unmarshal(body, &backendResp); err != nil {
+		log.Printf("Failed to parse backend response: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusAccepted, transformSession(backendResp))
+}
+
+// InterruptSession handles POST /v1/sessions/:id/interrupt
+func InterruptSession(c *gin.Context) {
+	project := GetProject(c)
+	if !ValidateProjectName(project) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid project name"})
+		return
+	}
+	sessionID := c.Param("id")
+	if !ValidateSessionID(sessionID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session ID"})
+		return
+	}
+	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s/agui/interrupt", project, sessionID)
+
+	resp, err := ProxyRequest(c, http.MethodPost, path, []byte("{}"))
+	if err != nil {
+		log.Printf("Backend request failed for interrupt session %s: %v", sessionID, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Failed to read backend response: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		forwardErrorResponse(c, resp.StatusCode, body)
+		return
+	}
+
+	c.JSON(http.StatusOK, types.MessageResponse{Message: "Interrupt signal sent"})
+}
+
 // fetchSessionEvents calls the backend export endpoint and returns parsed AG-UI events.
 // On error, it writes the HTTP error response to c and returns a non-nil error.
 func fetchSessionEvents(c *gin.Context, project, sessionID string) ([]map[string]interface{}, error) {

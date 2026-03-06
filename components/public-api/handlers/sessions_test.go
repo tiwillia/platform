@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -23,7 +25,7 @@ func TestTransformSession(t *testing.T) {
 					"creationTimestamp": "2026-01-29T10:00:00Z",
 				},
 				"spec": map[string]interface{}{
-					"prompt": "Fix the bug",
+					"initialPrompt": "Fix the bug",
 					"model":  "claude-sonnet-4",
 				},
 				"status": map[string]interface{}{
@@ -47,7 +49,7 @@ func TestTransformSession(t *testing.T) {
 					"creationTimestamp": "2026-01-29T09:00:00Z",
 				},
 				"spec": map[string]interface{}{
-					"prompt": "Refactor code",
+					"initialPrompt": "Refactor code",
 				},
 				"status": map[string]interface{}{
 					"phase":          "Completed",
@@ -72,7 +74,7 @@ func TestTransformSession(t *testing.T) {
 					"creationTimestamp": "2026-01-29T08:00:00Z",
 				},
 				"spec": map[string]interface{}{
-					"prompt": "Do something",
+					"initialPrompt": "Do something",
 				},
 				"status": map[string]interface{}{
 					"phase": "Failed",
@@ -92,7 +94,7 @@ func TestTransformSession(t *testing.T) {
 			input: map[string]interface{}{
 				"name": "session-list-item",
 				"spec": map[string]interface{}{
-					"prompt": "List item task",
+					"initialPrompt": "List item task",
 				},
 				"status": map[string]interface{}{
 					"phase": "Pending",
@@ -238,6 +240,231 @@ func TestForwardErrorResponse(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// setupTestBackend creates a test HTTP server that mimics the backend for session lifecycle tests.
+// It returns the server and a cleanup function that restores BackendURL.
+func setupTestBackend(t *testing.T, expectedPath, expectedMethod string, responseStatus int, responseBody interface{}) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != expectedPath {
+			t.Errorf("unexpected path: got %s, want %s", r.URL.Path, expectedPath)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.Method != expectedMethod {
+			t.Errorf("unexpected method: got %s, want %s", r.Method, expectedMethod)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		// Verify Authorization header is forwarded
+		if auth := r.Header.Get("Authorization"); auth == "" {
+			t.Error("expected Authorization header to be forwarded")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(responseStatus)
+		json.NewEncoder(w).Encode(responseBody)
+	}))
+	return server
+}
+
+func TestE2E_StartSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	backendResp := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"name":              "session-abc",
+			"creationTimestamp": "2026-01-29T10:00:00Z",
+		},
+		"spec": map[string]interface{}{
+			"initialPrompt": "Fix the bug",
+		},
+		"status": map[string]interface{}{
+			"phase": "Running",
+		},
+	}
+
+	server := setupTestBackend(t, "/api/projects/my-project/agentic-sessions/session-abc/start", "POST", http.StatusOK, backendResp)
+	defer server.Close()
+	originalURL := BackendURL
+	BackendURL = server.URL
+	defer func() { BackendURL = originalURL }()
+
+	w := httptest.NewRecorder()
+	c, engine := gin.CreateTestContext(w)
+	engine.POST("/v1/sessions/:id/start", func(ctx *gin.Context) {
+		ctx.Set("project", "my-project")
+		ctx.Set("token", "test-token")
+		StartSession(ctx)
+	})
+	c.Request = httptest.NewRequest("POST", "/v1/sessions/session-abc/start", nil)
+	c.Request.Header.Set("Authorization", "Bearer test-token")
+	engine.ServeHTTP(w, c.Request)
+
+	if w.Code != http.StatusAccepted {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusAccepted)
+	}
+
+	var resp types.SessionResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp.ID != "session-abc" {
+		t.Errorf("ID = %q, want %q", resp.ID, "session-abc")
+	}
+	if resp.Status != "running" {
+		t.Errorf("Status = %q, want %q", resp.Status, "running")
+	}
+}
+
+func TestE2E_StopSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	backendResp := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"name":              "session-abc",
+			"creationTimestamp": "2026-01-29T10:00:00Z",
+		},
+		"spec": map[string]interface{}{
+			"initialPrompt": "Fix the bug",
+		},
+		"status": map[string]interface{}{
+			"phase": "Completed",
+		},
+	}
+
+	server := setupTestBackend(t, "/api/projects/my-project/agentic-sessions/session-abc/stop", "POST", http.StatusOK, backendResp)
+	defer server.Close()
+	originalURL := BackendURL
+	BackendURL = server.URL
+	defer func() { BackendURL = originalURL }()
+
+	w := httptest.NewRecorder()
+	c, engine := gin.CreateTestContext(w)
+	engine.POST("/v1/sessions/:id/stop", func(ctx *gin.Context) {
+		ctx.Set("project", "my-project")
+		ctx.Set("token", "test-token")
+		StopSession(ctx)
+	})
+	c.Request = httptest.NewRequest("POST", "/v1/sessions/session-abc/stop", nil)
+	c.Request.Header.Set("Authorization", "Bearer test-token")
+	engine.ServeHTTP(w, c.Request)
+
+	if w.Code != http.StatusAccepted {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusAccepted)
+	}
+
+	var resp types.SessionResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp.ID != "session-abc" {
+		t.Errorf("ID = %q, want %q", resp.ID, "session-abc")
+	}
+	if resp.Status != "completed" {
+		t.Errorf("Status = %q, want %q", resp.Status, "completed")
+	}
+}
+
+func TestE2E_InterruptSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	server := setupTestBackend(t, "/api/projects/my-project/agentic-sessions/session-abc/agui/interrupt", "POST", http.StatusOK, map[string]string{"message": "ok"})
+	defer server.Close()
+	originalURL := BackendURL
+	BackendURL = server.URL
+	defer func() { BackendURL = originalURL }()
+
+	w := httptest.NewRecorder()
+	c, engine := gin.CreateTestContext(w)
+	engine.POST("/v1/sessions/:id/interrupt", func(ctx *gin.Context) {
+		ctx.Set("project", "my-project")
+		ctx.Set("token", "test-token")
+		InterruptSession(ctx)
+	})
+	c.Request = httptest.NewRequest("POST", "/v1/sessions/session-abc/interrupt", nil)
+	c.Request.Header.Set("Authorization", "Bearer test-token")
+	engine.ServeHTTP(w, c.Request)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp types.MessageResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp.Message != "Interrupt signal sent" {
+		t.Errorf("Message = %q, want %q", resp.Message, "Interrupt signal sent")
+	}
+}
+
+func TestE2E_StartSession_InvalidID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, engine := gin.CreateTestContext(w)
+	engine.POST("/v1/sessions/:id/start", func(ctx *gin.Context) {
+		ctx.Set("project", "my-project")
+		ctx.Set("token", "test-token")
+		StartSession(ctx)
+	})
+	c.Request = httptest.NewRequest("POST", "/v1/sessions/INVALID_SESSION/start", nil)
+	engine.ServeHTTP(w, c.Request)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestE2E_StopSession_BackendError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	server := setupTestBackend(t, "/api/projects/my-project/agentic-sessions/session-abc/stop", "POST", http.StatusNotFound, map[string]string{"error": "Session not found"})
+	defer server.Close()
+	originalURL := BackendURL
+	BackendURL = server.URL
+	defer func() { BackendURL = originalURL }()
+
+	w := httptest.NewRecorder()
+	c, engine := gin.CreateTestContext(w)
+	engine.POST("/v1/sessions/:id/stop", func(ctx *gin.Context) {
+		ctx.Set("project", "my-project")
+		ctx.Set("token", "test-token")
+		StopSession(ctx)
+	})
+	c.Request = httptest.NewRequest("POST", "/v1/sessions/session-abc/stop", nil)
+	c.Request.Header.Set("Authorization", "Bearer test-token")
+	engine.ServeHTTP(w, c.Request)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestE2E_InterruptSession_BackendError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	server := setupTestBackend(t, "/api/projects/my-project/agentic-sessions/session-abc/agui/interrupt", "POST", http.StatusConflict, map[string]string{"error": "Session not running"})
+	defer server.Close()
+	originalURL := BackendURL
+	BackendURL = server.URL
+	defer func() { BackendURL = originalURL }()
+
+	w := httptest.NewRecorder()
+	c, engine := gin.CreateTestContext(w)
+	engine.POST("/v1/sessions/:id/interrupt", func(ctx *gin.Context) {
+		ctx.Set("project", "my-project")
+		ctx.Set("token", "test-token")
+		InterruptSession(ctx)
+	})
+	c.Request = httptest.NewRequest("POST", "/v1/sessions/session-abc/interrupt", nil)
+	c.Request.Header.Set("Authorization", "Bearer test-token")
+	engine.ServeHTTP(w, c.Request)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusConflict)
 	}
 }
 

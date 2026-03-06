@@ -68,6 +68,11 @@ type SessionRunsResponse struct {
 	Runs      []RunSummary `json:"runs"`
 }
 
+// MessageResponse is a simple message response (used by interrupt, etc.)
+type MessageResponse struct {
+	Message string `json:"message"`
+}
+
 // ErrorResponse is a standard error response
 type ErrorResponse struct {
 	Error   string `json:"error"`
