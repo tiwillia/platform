@@ -92,12 +92,13 @@ func CreateRun(c *gin.Context) {
 	}
 
 	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s/agui/run", project, sessionID)
-	resp, err := ProxyRequest(c, http.MethodPost, path, reqBody)
+	resp, cancel, err := ProxyRequest(c, http.MethodPost, path, reqBody)
 	if err != nil {
 		log.Printf("Backend request failed for create run: %v", err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
 		return
 	}
+	defer cancel()
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
@@ -193,12 +194,13 @@ func SendMessage(c *gin.Context) {
 	}
 
 	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s/agui/run", project, sessionID)
-	resp, err := ProxyRequest(c, http.MethodPost, path, reqBody)
+	resp, cancel, err := ProxyRequest(c, http.MethodPost, path, reqBody)
 	if err != nil {
 		log.Printf("Backend request failed for send message: %v", err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
 		return
 	}
+	defer cancel()
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
@@ -265,11 +267,12 @@ func GetSessionRuns(c *gin.Context) {
 func fetchSessionEvents(c *gin.Context, project, sessionID string) ([]map[string]interface{}, int, error) {
 	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s/export", project, sessionID)
 
-	resp, err := ProxyRequest(c, http.MethodGet, path, nil)
+	resp, cancel, err := ProxyRequest(c, http.MethodGet, path, nil)
 	if err != nil {
 		log.Printf("Backend request failed for export: %v", err)
 		return nil, 0, fmt.Errorf("backend unavailable")
 	}
+	defer cancel()
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)

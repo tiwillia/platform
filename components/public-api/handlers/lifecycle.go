@@ -46,12 +46,13 @@ func StartSession(c *gin.Context) {
 	}
 
 	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s/start", project, sessionID)
-	resp, err := ProxyRequest(c, http.MethodPost, path, nil)
+	resp, cancel, err := ProxyRequest(c, http.MethodPost, path, nil)
 	if err != nil {
 		log.Printf("Backend request failed for start session %s: %v", sessionID, err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
 		return
 	}
+	defer cancel()
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
@@ -110,12 +111,13 @@ func StopSession(c *gin.Context) {
 	}
 
 	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s/stop", project, sessionID)
-	resp, err := ProxyRequest(c, http.MethodPost, path, nil)
+	resp, cancel, err := ProxyRequest(c, http.MethodPost, path, nil)
 	if err != nil {
 		log.Printf("Backend request failed for stop session %s: %v", sessionID, err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
 		return
 	}
+	defer cancel()
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
@@ -154,12 +156,13 @@ func InterruptSession(c *gin.Context) {
 	}
 
 	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s/agui/interrupt", project, sessionID)
-	resp, err := ProxyRequest(c, http.MethodPost, path, []byte("{}"))
+	resp, cancel, err := ProxyRequest(c, http.MethodPost, path, []byte("{}"))
 	if err != nil {
 		log.Printf("Backend request failed for interrupt session %s: %v", sessionID, err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
 		return
 	}
+	defer cancel()
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
@@ -181,12 +184,13 @@ func InterruptSession(c *gin.Context) {
 // On error, it writes the appropriate error response to the gin context.
 func getSessionPhase(c *gin.Context, project, sessionID string) (string, error) {
 	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s", project, sessionID)
-	resp, err := ProxyRequest(c, http.MethodGet, path, nil)
+	resp, cancel, err := ProxyRequest(c, http.MethodGet, path, nil)
 	if err != nil {
 		log.Printf("Backend request failed for get session phase %s: %v", sessionID, err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
 		return "", fmt.Errorf("backend unavailable")
 	}
+	defer cancel()
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)

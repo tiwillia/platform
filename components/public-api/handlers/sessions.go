@@ -22,11 +22,12 @@ func ListSessions(c *gin.Context) {
 	}
 	path := fmt.Sprintf("/api/projects/%s/agentic-sessions", project)
 
-	resp, err := ProxyRequest(c, http.MethodGet, path, nil)
+	resp, cancel, err := ProxyRequest(c, http.MethodGet, path, nil)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
 		return
 	}
+	defer cancel()
 	defer resp.Body.Close()
 
 	// Read response body
@@ -78,12 +79,13 @@ func GetSession(c *gin.Context) {
 	}
 	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s", project, sessionID)
 
-	resp, err := ProxyRequest(c, http.MethodGet, path, nil)
+	resp, cancel, err := ProxyRequest(c, http.MethodGet, path, nil)
 	if err != nil {
 		log.Printf("Backend request failed for session %s: %v", sessionID, err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
 		return
 	}
+	defer cancel()
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
@@ -154,12 +156,13 @@ func CreateSession(c *gin.Context) {
 
 	path := fmt.Sprintf("/api/projects/%s/agentic-sessions", project)
 
-	resp, err := ProxyRequest(c, http.MethodPost, path, reqBody)
+	resp, cancel, err := ProxyRequest(c, http.MethodPost, path, reqBody)
 	if err != nil {
 		log.Printf("Backend request failed for create session: %v", err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
 		return
 	}
+	defer cancel()
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
@@ -203,12 +206,13 @@ func DeleteSession(c *gin.Context) {
 	}
 	path := fmt.Sprintf("/api/projects/%s/agentic-sessions/%s", project, sessionID)
 
-	resp, err := ProxyRequest(c, http.MethodDelete, path, nil)
+	resp, cancel, err := ProxyRequest(c, http.MethodDelete, path, nil)
 	if err != nil {
 		log.Printf("Backend request failed for delete session %s: %v", sessionID, err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
 		return
 	}
+	defer cancel()
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusOK {
