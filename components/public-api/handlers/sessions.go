@@ -126,7 +126,7 @@ func CreateSession(c *gin.Context) {
 
 	// Transform to backend format
 	backendReq := map[string]interface{}{
-		"prompt": req.Task,
+		"initialPrompt": req.Task,
 	}
 	if req.DisplayName != "" {
 		backendReq["displayName"] = req.DisplayName
@@ -137,12 +137,13 @@ func CreateSession(c *gin.Context) {
 	if len(req.Repos) > 0 {
 		repos := make([]map[string]interface{}, len(req.Repos))
 		for i, r := range req.Repos {
-			repos[i] = map[string]interface{}{
-				"input": map[string]interface{}{
-					"url":    r.URL,
-					"branch": r.Branch,
-				},
+			repo := map[string]interface{}{
+				"url": r.URL,
 			}
+			if r.Branch != "" {
+				repo["branch"] = r.Branch
+			}
+			repos[i] = repo
 		}
 		backendReq["repos"] = repos
 	}
@@ -268,7 +269,9 @@ func transformSession(data map[string]interface{}) types.SessionResponse {
 
 	// Extract spec
 	if spec, ok := data["spec"].(map[string]interface{}); ok {
-		if prompt, ok := spec["prompt"].(string); ok {
+		if prompt, ok := spec["initialPrompt"].(string); ok {
+			session.Task = prompt
+		} else if prompt, ok := spec["prompt"].(string); ok {
 			session.Task = prompt
 		}
 		if model, ok := spec["model"].(string); ok {

@@ -24,8 +24,8 @@ func TestTransformSession(t *testing.T) {
 					"creationTimestamp": "2026-01-29T10:00:00Z",
 				},
 				"spec": map[string]interface{}{
-					"prompt": "Fix the bug",
-					"model":  "claude-sonnet-4",
+					"initialPrompt": "Fix the bug",
+					"model":         "claude-sonnet-4",
 				},
 				"status": map[string]interface{}{
 					"phase":          "Running",
@@ -37,6 +37,27 @@ func TestTransformSession(t *testing.T) {
 				Status:    "running",
 				Task:      "Fix the bug",
 				Model:     "claude-sonnet-4",
+				CreatedAt: "2026-01-29T10:00:00Z",
+			},
+		},
+		{
+			name: "Legacy prompt field fallback",
+			input: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"name":              "session-legacy",
+					"creationTimestamp": "2026-01-29T10:00:00Z",
+				},
+				"spec": map[string]interface{}{
+					"prompt": "Legacy prompt",
+				},
+				"status": map[string]interface{}{
+					"phase": "Running",
+				},
+			},
+			expected: types.SessionResponse{
+				ID:        "session-legacy",
+				Status:    "running",
+				Task:      "Legacy prompt",
 				CreatedAt: "2026-01-29T10:00:00Z",
 			},
 		},
