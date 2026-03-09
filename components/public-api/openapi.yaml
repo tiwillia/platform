@@ -136,6 +136,12 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Session is not in a running state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '502':
           $ref: '#/components/responses/BadGateway'
 
@@ -239,6 +245,12 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Session is not in a running state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '502':
           $ref: '#/components/responses/BadGateway'
 
@@ -272,8 +284,9 @@ paths:
       summary: Start (resume) a session
       description: >
         Resumes a stopped or completed session. The session transitions
-        back to Running state and can accept new messages. Returns 409
-        if the session is already running or pending.
+        back to Running state and can accept new messages. Returns 422
+        if the session is already running or pending, or 409 if the
+        session state is unknown.
       operationId: startSession
       parameters:
         - $ref: '#/components/parameters/ProjectHeader'
@@ -291,6 +304,12 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: Session state is unknown
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '422':
           description: Session is already running or pending
           content:
@@ -307,8 +326,9 @@ paths:
         Stops a running session. The session's pod is terminated and the
         session transitions to a completed state. This is a session-level
         lifecycle action — use interrupt instead to cancel only the
-        current run without killing the session. Returns 409 if the
-        session is already stopped, completed, or failed.
+        current run without killing the session. Returns 422 if the
+        session is already completed or failed, or 409 if the session
+        state is unknown.
       operationId: stopSession
       parameters:
         - $ref: '#/components/parameters/ProjectHeader'
@@ -326,6 +346,12 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: Session state is unknown
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '422':
           description: Session is not in a running state
           content:
@@ -360,12 +386,6 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
-        '422':
-          description: Session not in a state that can be interrupted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
         '502':
           $ref: '#/components/responses/BadGateway'
 
@@ -417,10 +437,10 @@ components:
           description: Repositories configured for this session
           items:
             $ref: '#/components/schemas/SessionRepo'
-        createdAt:
+        created_at:
           type: string
           format: date-time
-        completedAt:
+        completed_at:
           type: string
           format: date-time
         result:
@@ -445,9 +465,6 @@ components:
         task:
           type: string
           description: The initial prompt / task for the agent
-        display_name:
-          type: string
-          description: Human-readable name for the session
         model:
           type: string
         repos:
@@ -726,8 +743,6 @@ components:
       type: object
       properties:
         error:
-          type: string
-        message:
           type: string
 
   responses:
