@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 
 	"ambient-code-public-api/types"
 
@@ -14,6 +15,10 @@ import (
 )
 
 // CreateRun handles POST /v1/sessions/:id/runs
+//
+// Defense-in-depth: The gateway fetches the session phase before forwarding.
+// The backend also validates phase transitions, so this is a redundant guard
+// that provides faster feedback and reduces unnecessary backend writes.
 func CreateRun(c *gin.Context) {
 	project := GetProject(c)
 	if !ValidateProjectName(project) {
@@ -26,9 +31,19 @@ func CreateRun(c *gin.Context) {
 		return
 	}
 
+	phase, err := getSessionPhase(c, project, sessionID)
+	if err != nil {
+		return // getSessionPhase already wrote the error response
+	}
+
+	if phase != "running" {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Session is not in a running state"})
+		return
+	}
+
 	var req types.CreateRunRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
@@ -114,6 +129,10 @@ func CreateRun(c *gin.Context) {
 }
 
 // SendMessage handles POST /v1/sessions/:id/message
+//
+// Defense-in-depth: The gateway fetches the session phase before forwarding.
+// The backend also validates phase transitions, so this is a redundant guard
+// that provides faster feedback and reduces unnecessary backend writes.
 func SendMessage(c *gin.Context) {
 	project := GetProject(c)
 	if !ValidateProjectName(project) {
@@ -126,9 +145,19 @@ func SendMessage(c *gin.Context) {
 		return
 	}
 
+	phase, err := getSessionPhase(c, project, sessionID)
+	if err != nil {
+		return // getSessionPhase already wrote the error response
+	}
+
+	if phase != "running" {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Session is not in a running state"})
+		return
+	}
+
 	var req types.SendMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
@@ -216,7 +245,7 @@ func GetSessionRuns(c *gin.Context) {
 	events, statusCode, err := fetchSessionEvents(c, project, sessionID)
 	if err != nil {
 		if statusCode > 0 {
-			c.JSON(statusCode, gin.H{"error": err.Error()})
+			c.JSON(statusCode, gin.H{"error": "Request failed"})
 		} else {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
 		}
@@ -239,14 +268,14 @@ func fetchSessionEvents(c *gin.Context, project, sessionID string) ([]map[string
 	resp, err := ProxyRequest(c, http.MethodGet, path, nil)
 	if err != nil {
 		log.Printf("Backend request failed for export: %v", err)
-		return nil, 0, fmt.Errorf("Backend unavailable")
+		return nil, 0, fmt.Errorf("backend unavailable")
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("Failed to read export response: %v", err)
-		return nil, http.StatusInternalServerError, fmt.Errorf("Internal server error")
+		return nil, http.StatusInternalServerError, fmt.Errorf("internal server error")
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -257,7 +286,7 @@ func fetchSessionEvents(c *gin.Context, project, sessionID string) ([]map[string
 				return nil, resp.StatusCode, fmt.Errorf("%s", errMsg)
 			}
 		}
-		return nil, resp.StatusCode, fmt.Errorf("Request failed")
+		return nil, resp.StatusCode, fmt.Errorf("request failed")
 	}
 
 	var exportResp struct {
@@ -265,13 +294,13 @@ func fetchSessionEvents(c *gin.Context, project, sessionID string) ([]map[string
 	}
 	if err := json.Unmarshal(body, &exportResp); err != nil {
 		log.Printf("Failed to parse export response: %v", err)
-		return nil, http.StatusInternalServerError, fmt.Errorf("Internal server error")
+		return nil, http.StatusInternalServerError, fmt.Errorf("internal server error")
 	}
 
 	var events []map[string]interface{}
 	if err := json.Unmarshal(exportResp.AGUIEvents, &events); err != nil {
 		log.Printf("Failed to parse aguiEvents: %v", err)
-		return nil, http.StatusInternalServerError, fmt.Errorf("Internal server error")
+		return nil, http.StatusInternalServerError, fmt.Errorf("internal server error")
 	}
 
 	return events, 0, nil
@@ -336,19 +365,14 @@ func deriveRunSummaries(events []map[string]interface{}) []types.RunSummary {
 	}
 
 	// Build sorted slice
-	runs := make([]types.RunSummary, 0, len(runMap))
 	sorted := make([]*runData, 0, len(runMap))
 	for _, rd := range runMap {
 		sorted = append(sorted, rd)
 	}
-	// Sort by insertion order
-	for i := 0; i < len(sorted); i++ {
-		for j := i + 1; j < len(sorted); j++ {
-			if sorted[j].order < sorted[i].order {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
-		}
-	}
+	slices.SortFunc(sorted, func(a, b *runData) int {
+		return a.order - b.order
+	})
+	runs := make([]types.RunSummary, 0, len(sorted))
 	for _, rd := range sorted {
 		runs = append(runs, rd.summary)
 	}

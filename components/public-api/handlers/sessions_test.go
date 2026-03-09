@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"testing"
 
@@ -208,7 +209,8 @@ func TestNormalizePhase(t *testing.T) {
 		{"Succeeded", "completed"},
 		{"Failed", "failed"},
 		{"Error", "failed"},
-		{"Unknown", "Unknown"},
+		{"Unknown", "unknown"},
+		{"Stopping", "stopping"},
 	}
 
 	for _, tt := range tests {
@@ -266,6 +268,20 @@ func TestForwardErrorResponse(t *testing.T) {
 			expectedStatus: 500,
 			expectJSON:     true, // Should be wrapped in generic JSON
 		},
+		{
+			name:           "Backend returns JSON with extra internal fields",
+			statusCode:     500,
+			body:           []byte(`{"error": "Session failed", "internal_trace": "k8s.io/xyz:123", "namespace": "secret-ns"}`),
+			expectedStatus: 500,
+			expectJSON:     true, // Should only forward "error" field
+		},
+		{
+			name:           "Backend returns JSON without error field",
+			statusCode:     500,
+			body:           []byte(`{"message": "some internal detail"}`),
+			expectedStatus: 500,
+			expectJSON:     true, // Should fall back to generic error
+		},
 	}
 
 	for _, tt := range tests {
@@ -287,6 +303,51 @@ func TestForwardErrorResponse(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestForwardErrorResponse_FiltersInternalFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Backend returns JSON with extra internal fields that should be stripped
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+
+	forwardErrorResponse(c, 500, []byte(`{"error": "Session failed", "internal_trace": "k8s.io/xyz:123", "namespace": "secret-ns"}`))
+
+	var response map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &response)
+
+	if response["error"] != "Session failed" {
+		t.Errorf("Expected error 'Session failed', got %v", response["error"])
+	}
+	if _, exists := response["internal_trace"]; exists {
+		t.Error("Expected internal_trace to be stripped from response")
+	}
+	if _, exists := response["namespace"]; exists {
+		t.Error("Expected namespace to be stripped from response")
+	}
+}
+
+func TestForwardErrorResponse_NoErrorField(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Backend returns JSON without an "error" field
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+
+	forwardErrorResponse(c, 500, []byte(`{"message": "some internal detail"}`))
+
+	var response map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &response)
+
+	if response["error"] != "Request failed" {
+		t.Errorf("Expected generic error 'Request failed', got %v", response["error"])
+	}
+	if _, exists := response["message"]; exists {
+		t.Error("Expected message to not be forwarded")
 	}
 }
 

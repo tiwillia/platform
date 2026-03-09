@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"ambient-code-public-api/types"
 
@@ -117,7 +118,7 @@ func CreateSession(c *gin.Context) {
 
 	var req types.CreateSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
@@ -221,17 +222,19 @@ func DeleteSession(c *gin.Context) {
 	forwardErrorResponse(c, resp.StatusCode, body)
 }
 
-// forwardErrorResponse forwards backend error with consistent JSON format
+// forwardErrorResponse forwards backend error with consistent JSON format.
+// SECURITY: Only forwards the "error" field to prevent leaking internal details.
 func forwardErrorResponse(c *gin.Context, statusCode int, body []byte) {
-	// Try to parse as JSON error response
+	// Try to parse as JSON and extract only the "error" field
 	var errorResp map[string]interface{}
 	if err := json.Unmarshal(body, &errorResp); err == nil {
-		// Backend returned valid JSON, forward it
-		c.JSON(statusCode, errorResp)
-		return
+		if errMsg, ok := errorResp["error"].(string); ok {
+			c.JSON(statusCode, gin.H{"error": errMsg})
+			return
+		}
 	}
 
-	// Backend returned non-JSON, wrap in standard error format
+	// Backend returned non-JSON or no "error" field, wrap in standard error format
 	c.JSON(statusCode, gin.H{"error": "Request failed"})
 }
 
@@ -313,7 +316,8 @@ func transformSession(data map[string]interface{}) types.SessionResponse {
 	return session
 }
 
-// normalizePhase converts K8s phase to simplified status
+// normalizePhase converts K8s phase to simplified lowercase status.
+// The public API contract guarantees status values are always lowercase.
 func normalizePhase(phase string) string {
 	switch phase {
 	case "Pending", "Creating", "Initializing":
@@ -325,6 +329,6 @@ func normalizePhase(phase string) string {
 	case "Failed", "Error":
 		return "failed"
 	default:
-		return phase
+		return strings.ToLower(phase)
 	}
 }

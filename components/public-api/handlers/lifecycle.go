@@ -13,6 +13,10 @@ import (
 )
 
 // StartSession handles POST /v1/sessions/:id/start
+//
+// Defense-in-depth: The gateway fetches the session phase before forwarding.
+// The backend also validates phase transitions, so this is a redundant guard
+// that provides faster feedback and reduces unnecessary backend writes.
 func StartSession(c *gin.Context) {
 	project := GetProject(c)
 	if !ValidateProjectName(project) {
@@ -28,6 +32,12 @@ func StartSession(c *gin.Context) {
 	phase, err := getSessionPhase(c, project, sessionID)
 	if err != nil {
 		return // getSessionPhase already wrote the error response
+	}
+
+	if phase == "" {
+		log.Printf("Session %s has no phase, treating as unknown", sessionID)
+		c.JSON(http.StatusConflict, gin.H{"error": "Session state is unknown"})
+		return
 	}
 
 	if phase == "running" || phase == "pending" {
@@ -67,6 +77,10 @@ func StartSession(c *gin.Context) {
 }
 
 // StopSession handles POST /v1/sessions/:id/stop
+//
+// Defense-in-depth: The gateway fetches the session phase before forwarding.
+// The backend also validates phase transitions, so this is a redundant guard
+// that provides faster feedback and reduces unnecessary backend writes.
 func StopSession(c *gin.Context) {
 	project := GetProject(c)
 	if !ValidateProjectName(project) {
@@ -81,6 +95,12 @@ func StopSession(c *gin.Context) {
 
 	phase, err := getSessionPhase(c, project, sessionID)
 	if err != nil {
+		return
+	}
+
+	if phase == "" {
+		log.Printf("Session %s has no phase, treating as unknown", sessionID)
+		c.JSON(http.StatusConflict, gin.H{"error": "Session state is unknown"})
 		return
 	}
 

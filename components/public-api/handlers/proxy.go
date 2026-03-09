@@ -1,3 +1,4 @@
+// Package handlers implements HTTP request handlers for the public API gateway.
 package handlers
 
 import (

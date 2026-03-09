@@ -34,8 +34,8 @@ The public API currently exposes only basic CRUD:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/v1/sessions/{id}/message` | **Simplified send.** Accepts `{"content": "..."}`, constructs the AG-UI `RunAgentInput` envelope server-side (generates run ID, thread ID, message ID). Proxies to backend `/agui/run`. |
 | POST | `/v1/sessions/{id}/runs` | **Raw AG-UI run.** Accepts full `RunAgentInput` with caller-provided run/thread IDs and messages array. Direct proxy to backend `/agui/run`. |
+| POST | `/v1/sessions/{id}/message` | **Simplified send.** Accepts `{"content": "..."}`, constructs the AG-UI `RunAgentInput` envelope server-side (generates run ID, thread ID, message ID). Proxies to backend `/agui/run`. |
 
 ### Output Retrieval
 

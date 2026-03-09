@@ -117,6 +117,18 @@ func TestToInt64(t *testing.T) {
 func TestE2E_CreateRun(t *testing.T) {
 	var receivedBody map[string]interface{}
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// GET session (for phase check)
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/agentic-sessions/") {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"metadata": map[string]interface{}{"name": "test-session"},
+				"status":   map[string]interface{}{"phase": "Running"},
+			})
+			return
+		}
+
 		if r.Method != http.MethodPost {
 			t.Errorf("Expected POST, got %s", r.Method)
 		}
@@ -127,7 +139,6 @@ func TestE2E_CreateRun(t *testing.T) {
 		decoder := json.NewDecoder(r.Body)
 		decoder.Decode(&receivedBody)
 
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
 			"runId":    "test-run-id",
@@ -168,7 +179,26 @@ func TestE2E_CreateRun(t *testing.T) {
 	}
 }
 
+func makeRunningSessionBackend(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "test-session"},
+			"status":   map[string]interface{}{"phase": "Running"},
+		})
+	}))
+}
+
 func TestE2E_CreateRun_InvalidBody(t *testing.T) {
+	backend := makeRunningSessionBackend(t)
+	defer backend.Close()
+
+	originalURL := BackendURL
+	BackendURL = backend.URL
+	defer func() { BackendURL = originalURL }()
+
 	router := setupTestRouter()
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/sessions/test-session/runs",
@@ -184,6 +214,13 @@ func TestE2E_CreateRun_InvalidBody(t *testing.T) {
 }
 
 func TestE2E_CreateRun_NoMessages(t *testing.T) {
+	backend := makeRunningSessionBackend(t)
+	defer backend.Close()
+
+	originalURL := BackendURL
+	BackendURL = backend.URL
+	defer func() { BackendURL = originalURL }()
+
 	router := setupTestRouter()
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/sessions/test-session/runs",
@@ -195,6 +232,28 @@ func TestE2E_CreateRun_NoMessages(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestE2E_CreateRun_SessionNotRunning(t *testing.T) {
+	backend := makeSessionBackend(t, "Completed", "/agui/run", http.StatusOK)
+	defer backend.Close()
+
+	originalURL := BackendURL
+	BackendURL = backend.URL
+	defer func() { BackendURL = originalURL }()
+
+	router := setupTestRouter()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/sessions/test-session/runs",
+		strings.NewReader(`{"messages": [{"role": "user", "content": "Hello"}]}`))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("X-Ambient-Project", "test-project")
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("Expected status 422 for completed session, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -278,10 +337,21 @@ func TestE2E_GetSessionRuns_BackendError(t *testing.T) {
 func TestE2E_SendMessage(t *testing.T) {
 	var receivedBody map[string]interface{}
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// GET session (for phase check)
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/agentic-sessions/") {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"metadata": map[string]interface{}{"name": "test-session"},
+				"status":   map[string]interface{}{"phase": "Running"},
+			})
+			return
+		}
+
 		decoder := json.NewDecoder(r.Body)
 		decoder.Decode(&receivedBody)
 
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
 			"runId":    "generated-run-id",
@@ -327,6 +397,13 @@ func TestE2E_SendMessage(t *testing.T) {
 }
 
 func TestE2E_SendMessage_EmptyContent(t *testing.T) {
+	backend := makeRunningSessionBackend(t)
+	defer backend.Close()
+
+	originalURL := BackendURL
+	BackendURL = backend.URL
+	defer func() { BackendURL = originalURL }()
+
 	router := setupTestRouter()
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/sessions/test-session/message",
@@ -338,5 +415,27 @@ func TestE2E_SendMessage_EmptyContent(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status 400 for empty content, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestE2E_SendMessage_SessionNotRunning(t *testing.T) {
+	backend := makeSessionBackend(t, "Failed", "/agui/run", http.StatusOK)
+	defer backend.Close()
+
+	originalURL := BackendURL
+	BackendURL = backend.URL
+	defer func() { BackendURL = originalURL }()
+
+	router := setupTestRouter()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/sessions/test-session/message",
+		strings.NewReader(`{"content": "Hello"}`))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("X-Ambient-Project", "test-project")
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("Expected status 422 for failed session, got %d: %s", w.Code, w.Body.String())
 	}
 }

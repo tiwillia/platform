@@ -1,3 +1,4 @@
+// Package types defines data transfer objects for the public API.
 package types
 
 // SessionResponse is the simplified session response for the public API
@@ -8,8 +9,8 @@ type SessionResponse struct {
 	Task        string        `json:"task"`
 	Model       string        `json:"model,omitempty"`
 	Repos       []SessionRepo `json:"repos,omitempty"`
-	CreatedAt   string        `json:"createdAt"`
-	CompletedAt string        `json:"completedAt,omitempty"`
+	CreatedAt   string        `json:"created_at"`
+	CompletedAt string        `json:"completed_at,omitempty"`
 	Result      string        `json:"result,omitempty"`
 	Error       string        `json:"error,omitempty"`
 }
@@ -124,10 +125,4 @@ type SessionRepo struct {
 // MessageResponse is a simple message response
 type MessageResponse struct {
 	Message string `json:"message"`
-}
-
-// ErrorResponse is a standard error response
-type ErrorResponse struct {
-	Error   string `json:"error"`
-	Message string `json:"message,omitempty"`
 }

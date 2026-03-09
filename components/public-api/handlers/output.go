@@ -3,14 +3,12 @@ package handlers
 import (
 	"fmt"
 	"net/http"
-	"regexp"
 
 	"ambient-code-public-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
-
-var uuidRegex = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // GetSessionOutput handles GET /v1/sessions/:id/output
 func GetSessionOutput(c *gin.Context) {
@@ -32,15 +30,17 @@ func GetSessionOutput(c *gin.Context) {
 	}
 
 	runIDFilter := c.Query("run_id")
-	if runIDFilter != "" && !uuidRegex.MatchString(runIDFilter) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid run_id format, must be a valid UUID"})
-		return
+	if runIDFilter != "" {
+		if _, err := uuid.Parse(runIDFilter); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid run_id format, must be a valid UUID"})
+			return
+		}
 	}
 
 	events, statusCode, err := fetchSessionEvents(c, project, sessionID)
 	if err != nil {
 		if statusCode > 0 {
-			c.JSON(statusCode, gin.H{"error": err.Error()})
+			c.JSON(statusCode, gin.H{"error": "Request failed"})
 		} else {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "Backend unavailable"})
 		}
