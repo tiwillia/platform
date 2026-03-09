@@ -126,6 +126,9 @@ func CreateSession(c *gin.Context) {
 	backendReq := map[string]interface{}{
 		"prompt": req.Task,
 	}
+	if req.DisplayName != "" {
+		backendReq["displayName"] = req.DisplayName
+	}
 	if req.Model != "" {
 		backendReq["model"] = req.Model
 	}

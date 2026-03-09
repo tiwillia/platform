@@ -23,9 +23,10 @@ type SessionListResponse struct {
 
 // CreateSessionRequest is the request body for creating a session
 type CreateSessionRequest struct {
-	Task  string `json:"task" binding:"required"`
-	Model string `json:"model,omitempty"`
-	Repos []Repo `json:"repos,omitempty"`
+	Task        string `json:"task" binding:"required"`
+	DisplayName string `json:"display_name,omitempty"`
+	Model       string `json:"model,omitempty"`
+	Repos       []Repo `json:"repos,omitempty"`
 }
 
 // Repo represents a repository configuration

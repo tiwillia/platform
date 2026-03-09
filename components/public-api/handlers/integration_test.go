@@ -122,6 +122,41 @@ func TestE2E_CreateSession(t *testing.T) {
 	}
 }
 
+func TestE2E_CreateSession_WithDisplayName(t *testing.T) {
+	var receivedBody map[string]interface{}
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		decoder.Decode(&receivedBody)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"name": "session-123"})
+	}))
+	defer backend.Close()
+
+	originalURL := BackendURL
+	BackendURL = backend.URL
+	defer func() { BackendURL = originalURL }()
+
+	router := setupTestRouter()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/sessions",
+		strings.NewReader(`{"task": "Fix the bug", "display_name": "Bug Fix Session"}`))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("X-Ambient-Project", "test-project")
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("Expected status 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify display_name was forwarded as displayName (camelCase) to backend
+	if receivedBody["displayName"] != "Bug Fix Session" {
+		t.Errorf("Expected displayName 'Bug Fix Session' in backend request, got %v", receivedBody["displayName"])
+	}
+}
+
 func TestE2E_BackendReturns500(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

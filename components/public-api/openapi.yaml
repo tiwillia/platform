@@ -465,6 +465,9 @@ components:
         task:
           type: string
           description: The initial prompt / task for the agent
+        display_name:
+          type: string
+          description: Human-readable name for the session
         model:
           type: string
         repos:
