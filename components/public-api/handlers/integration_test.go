@@ -27,6 +27,14 @@ func setupTestRouter() *gin.Engine {
 		v1.POST("/sessions", CreateSession)
 		v1.GET("/sessions/:id", GetSession)
 		v1.DELETE("/sessions/:id", DeleteSession)
+
+		v1.POST("/sessions/:id/runs", CreateRun)
+		v1.GET("/sessions/:id/runs", GetSessionRuns)
+		v1.POST("/sessions/:id/message", SendMessage)
+		v1.GET("/sessions/:id/output", GetSessionOutput)
+		v1.POST("/sessions/:id/start", StartSession)
+		v1.POST("/sessions/:id/stop", StopSession)
+		v1.POST("/sessions/:id/interrupt", InterruptSession)
 	}
 
 	return r

@@ -105,6 +105,40 @@ func TestTransformSession(t *testing.T) {
 			},
 		},
 		{
+			name: "Session with displayName and repos",
+			input: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"name":              "session-with-repos",
+					"creationTimestamp": "2026-01-29T10:00:00Z",
+				},
+				"spec": map[string]interface{}{
+					"prompt":      "Fix the bug",
+					"displayName": "My Cool Session",
+					"repos": []interface{}{
+						map[string]interface{}{
+							"input": map[string]interface{}{
+								"url":    "https://github.com/org/repo",
+								"branch": "main",
+							},
+						},
+					},
+				},
+				"status": map[string]interface{}{
+					"phase": "Running",
+				},
+			},
+			expected: types.SessionResponse{
+				ID:          "session-with-repos",
+				Status:      "running",
+				DisplayName: "My Cool Session",
+				Task:        "Fix the bug",
+				Repos: []types.SessionRepo{
+					{URL: "https://github.com/org/repo", Branch: "main"},
+				},
+				CreatedAt: "2026-01-29T10:00:00Z",
+			},
+		},
+		{
 			name:  "Empty session",
 			input: map[string]interface{}{},
 			expected: types.SessionResponse{
@@ -140,6 +174,21 @@ func TestTransformSession(t *testing.T) {
 			}
 			if result.Error != tt.expected.Error {
 				t.Errorf("Error = %q, want %q", result.Error, tt.expected.Error)
+			}
+			if result.DisplayName != tt.expected.DisplayName {
+				t.Errorf("DisplayName = %q, want %q", result.DisplayName, tt.expected.DisplayName)
+			}
+			if len(result.Repos) != len(tt.expected.Repos) {
+				t.Errorf("Repos count = %d, want %d", len(result.Repos), len(tt.expected.Repos))
+			} else {
+				for i, r := range result.Repos {
+					if r.URL != tt.expected.Repos[i].URL {
+						t.Errorf("Repos[%d].URL = %q, want %q", i, r.URL, tt.expected.Repos[i].URL)
+					}
+					if r.Branch != tt.expected.Repos[i].Branch {
+						t.Errorf("Repos[%d].Branch = %q, want %q", i, r.Branch, tt.expected.Repos[i].Branch)
+					}
+				}
 			}
 		})
 	}

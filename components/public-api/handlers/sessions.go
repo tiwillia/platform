@@ -264,6 +264,29 @@ func transformSession(data map[string]interface{}) types.SessionResponse {
 		if model, ok := spec["model"].(string); ok {
 			session.Model = model
 		}
+		if displayName, ok := spec["displayName"].(string); ok {
+			session.DisplayName = displayName
+		}
+		if repos, ok := spec["repos"].([]interface{}); ok {
+			for _, r := range repos {
+				repo, ok := r.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				sr := types.SessionRepo{}
+				if input, ok := repo["input"].(map[string]interface{}); ok {
+					if url, ok := input["url"].(string); ok {
+						sr.URL = url
+					}
+					if branch, ok := input["branch"].(string); ok {
+						sr.Branch = branch
+					}
+				}
+				if sr.URL != "" {
+					session.Repos = append(session.Repos, sr)
+				}
+			}
+		}
 	}
 
 	// Extract status
