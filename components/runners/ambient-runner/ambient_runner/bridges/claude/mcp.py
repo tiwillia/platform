@@ -58,6 +58,27 @@ def build_mcp_servers(
 
     mcp_servers = load_mcp_config(context, cwd_path) or {}
 
+    # Merge user-defined MCP servers (from CRD spec, override hardcoded by name)
+    from ambient_runner.platform.config import get_user_mcp_servers
+    from ambient_runner.platform.utils import expand_env_vars
+
+    user_servers = get_user_mcp_servers()
+    for server in user_servers:
+        name = server.get("name", "").strip()
+        if not name:
+            continue
+        server_type = server.get("type", "http")
+        if server_type == "http" and server.get("url"):
+            mcp_servers[name] = {"type": "http", "url": server["url"]}
+        elif server.get("command"):
+            entry: dict = {"command": server["command"]}
+            if server.get("args"):
+                entry["args"] = server["args"]
+            if server.get("env"):
+                entry["env"] = expand_env_vars(server["env"])
+            mcp_servers[name] = entry
+        logger.info(f"Added user-defined MCP server: {name} (type={server_type})")
+
     # Session control tools
     refresh_creds_tool = create_refresh_credentials_tool(context, sdk_tool)
     session_server = create_sdk_mcp_server(

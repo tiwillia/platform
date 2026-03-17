@@ -382,6 +382,34 @@ async def populate_mcp_server_credentials(context: RunnerContext) -> None:
         except Exception as e:
             logger.warning(f"Failed to fetch MCP credentials for {server_name}: {e}")
 
+    # Also scan user-defined MCP servers from MCP_SERVERS_JSON
+    from ambient_runner.platform.config import get_user_mcp_servers
+
+    user_servers = get_user_mcp_servers()
+    for server in user_servers:
+        server_name = server.get("name", "").strip()
+        env_block = server.get("env", {})
+        if not server_name or not env_block:
+            continue
+        needs_creds = any(
+            isinstance(v, str) and mcp_env_pattern.search(v) for v in env_block.values()
+        )
+        if not needs_creds:
+            continue
+        try:
+            data = await _fetch_mcp_credentials(context, server_name)
+            fields = data.get("fields", {})
+            if not fields:
+                logger.warning(f"No MCP credentials found for user server {server_name}")
+                continue
+            sanitized_name = server_name.upper().replace("-", "_")
+            for field_name, field_value in fields.items():
+                env_key = f"MCP_{sanitized_name}_{field_name.upper()}"
+                os.environ[env_key] = field_value
+                logger.info(f"Set {env_key} for user MCP server {server_name}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch MCP credentials for user server {server_name}: {e}")
+
 
 async def configure_git_identity(user_name: str, user_email: str) -> None:
     """Configure git user.name and user.email from provider credentials.

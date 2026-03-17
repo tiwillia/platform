@@ -39,6 +39,30 @@ def build_gemini_mcp_settings(
     """
     mcp_servers = load_mcp_config(context, cwd_path)
     if not mcp_servers:
+        mcp_servers = {}
+
+    # Merge user-defined MCP servers (from CRD spec, override hardcoded by name)
+    from ambient_runner.platform.config import get_user_mcp_servers
+    from ambient_runner.platform.utils import expand_env_vars
+
+    user_servers = get_user_mcp_servers()
+    for server in user_servers:
+        name = server.get("name", "").strip()
+        if not name:
+            continue
+        server_type = server.get("type", "http")
+        if server_type == "http" and server.get("url"):
+            mcp_servers[name] = {"type": "http", "url": server["url"]}
+        elif server.get("command"):
+            entry: dict = {"command": server["command"]}
+            if server.get("args"):
+                entry["args"] = server["args"]
+            if server.get("env"):
+                entry["env"] = expand_env_vars(server["env"])
+            mcp_servers[name] = entry
+        logger.info(f"Added user-defined MCP server for Gemini: {name} (type={server_type})")
+
+    if not mcp_servers:
         logger.info("No MCP servers configured for Gemini CLI")
         return None
 

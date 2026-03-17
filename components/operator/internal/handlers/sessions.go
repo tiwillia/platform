@@ -933,6 +933,12 @@ func handleAgenticSessionEvent(obj *unstructured.Unstructured) error {
 						}
 					}
 
+					// Add user-defined MCP servers if present
+					if mcpServers, ok := spec["mcpServers"].([]interface{}); ok && len(mcpServers) > 0 {
+						b, _ := json.Marshal(mcpServers)
+						base = append(base, corev1.EnvVar{Name: "MCP_SERVERS_JSON", Value: string(b)})
+					}
+
 					// Add GitHub token for private repos
 					secretName := ""
 					if meta, ok := currentObj.Object["metadata"].(map[string]interface{}); ok {
@@ -1194,6 +1200,12 @@ func handleAgenticSessionEvent(obj *unstructured.Unstructured) error {
 						if path, ok := workflow["path"].(string); ok && strings.TrimSpace(path) != "" {
 							base = append(base, corev1.EnvVar{Name: "ACTIVE_WORKFLOW_PATH", Value: path})
 						}
+					}
+
+					// Add user-defined MCP servers if present
+					if mcpServers, ok := spec["mcpServers"].([]interface{}); ok && len(mcpServers) > 0 {
+						b, _ := json.Marshal(mcpServers)
+						base = append(base, corev1.EnvVar{Name: "MCP_SERVERS_JSON", Value: string(b)})
 					}
 				}
 
