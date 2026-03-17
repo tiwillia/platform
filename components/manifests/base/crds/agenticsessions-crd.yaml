@@ -105,6 +105,37 @@ spec:
                   path:
                     type: string
                     description: "Optional path within repo (for repos with multiple workflows)"
+              mcpServers:
+                type: array
+                description: "User-specified MCP servers for this session"
+                items:
+                  type: object
+                  required:
+                  - name
+                  properties:
+                    name:
+                      type: string
+                      description: "Unique server identifier (lowercase alphanumeric with hyphens)"
+                    type:
+                      type: string
+                      enum: ["http", "stdio"]
+                      default: "http"
+                    url:
+                      type: string
+                      description: "Server URL (required for http type)"
+                    command:
+                      type: string
+                      description: "Executable command (required for stdio type, e.g. uvx, npx)"
+                    args:
+                      type: array
+                      items:
+                        type: string
+                      description: "Command arguments (stdio type only)"
+                    env:
+                      type: object
+                      additionalProperties:
+                        type: string
+                      description: "Environment variables for the server. Use ${MCP_*} placeholders for credentials."
           status:
             type: object
             properties:

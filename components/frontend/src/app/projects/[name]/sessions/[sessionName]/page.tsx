@@ -1766,6 +1766,7 @@ export default function ProjectSessionDetailPage({
                       projectName={projectName}
                       sessionName={sessionName}
                       sessionPhase={phase}
+                      specMcpServers={session.spec.mcpServers}
                     />
 
                     <IntegrationsAccordion />
@@ -2237,6 +2238,7 @@ export default function ProjectSessionDetailPage({
                             projectName={projectName}
                             sessionName={sessionName}
                             sessionPhase={phase}
+                            specMcpServers={session.spec.mcpServers}
                           />
                           <IntegrationsAccordion />
 

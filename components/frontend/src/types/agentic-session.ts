@@ -48,6 +48,16 @@ export type SessionRepo = {
     autoPush?: boolean;
 };
 
+// User-specified MCP server for a session
+export type McpServerConfig = {
+    name: string;
+    type?: "http" | "stdio";
+    url?: string;
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+};
+
 export type AgenticSessionSpec = {
 	initialPrompt?: string;
 	llmSettings: LLMSettings;
@@ -65,6 +75,8 @@ export type AgenticSessionSpec = {
 		branch: string;
 		path?: string;
 	};
+	// User-specified MCP servers
+	mcpServers?: McpServerConfig[];
 };
 
 export type ReconciledRepo = {
@@ -228,6 +240,7 @@ export type CreateAgenticSessionRequest = {
 		branch: string;
 		path?: string;
 	};
+	mcpServers?: McpServerConfig[];
 	labels?: Record<string, string>;
 	annotations?: Record<string, string>;
 	runnerType?: string;

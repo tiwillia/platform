@@ -75,6 +75,22 @@ def load_mcp_config(context: RunnerContext, cwd_path: str) -> Optional[dict]:
         return None
 
 
+def get_user_mcp_servers() -> list[dict]:
+    """Read user-defined MCP servers from MCP_SERVERS_JSON env var."""
+    raw = os.environ.get("MCP_SERVERS_JSON", "").strip()
+    if not raw:
+        return []
+    try:
+        servers = _json.loads(raw)
+        if isinstance(servers, list):
+            logger.info(f"Loaded {len(servers)} user-defined MCP servers from MCP_SERVERS_JSON")
+            return servers
+        return []
+    except _json.JSONDecodeError as e:
+        logger.error(f"Failed to parse MCP_SERVERS_JSON: {e}")
+        return []
+
+
 def get_repos_config() -> list[dict]:
     """Read repos mapping from REPOS_JSON env if present.
 

@@ -2,13 +2,23 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plug, Link2, CheckCircle2, XCircle, AlertCircle, AlertTriangle, Info, Check, X } from 'lucide-react'
+import { Plug, Link2, CheckCircle2, XCircle, AlertCircle, AlertTriangle, Info, Check, X, Plus, Trash2, Loader2 } from 'lucide-react'
 import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
 } from '@/components/ui/accordion'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Tooltip,
   TooltipContent,
@@ -21,9 +31,12 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
+import { toast } from 'sonner'
 import { useMcpStatus } from '@/services/queries/use-mcp'
 import { useIntegrationsStatus } from '@/services/queries/use-integrations'
+import { useUpdateSessionMcpServers } from '@/services/queries/use-sessions'
 import type { McpServer, McpTool } from '@/services/api/sessions'
+import type { McpServerConfig } from '@/types/agentic-session'
 
 // ─── MCP Servers Accordion ───────────────────────────────────────────────────
 
@@ -31,22 +44,63 @@ type McpServersAccordionProps = {
   projectName: string
   sessionName: string
   sessionPhase?: string
+  specMcpServers?: McpServerConfig[]
 }
 
 export function McpServersAccordion({
   projectName,
   sessionName,
   sessionPhase,
+  specMcpServers = [],
 }: McpServersAccordionProps) {
   const [placeholderTimedOut, setPlaceholderTimedOut] = useState(false)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newServer, setNewServer] = useState<McpServerConfig>({ name: '', type: 'http' })
+  const updateMcpServersMutation = useUpdateSessionMcpServers()
 
   // Only fetch MCP status once the session is actually running (runner pod ready)
   const isRunning = sessionPhase === 'Running'
+  const isStopped = sessionPhase === 'Stopped' || sessionPhase === 'Completed' || sessionPhase === 'Failed'
   const { data: mcpStatus, isPending: mcpPending } = useMcpStatus(projectName, sessionName, isRunning)
   const mcpServers = mcpStatus?.servers || []
 
   const showPlaceholders =
     !isRunning || mcpPending || (mcpServers.length === 0 && !placeholderTimedOut)
+
+  const userServerNames = new Set(specMcpServers.map((s) => s.name))
+
+  const handleAddServer = () => {
+    if (!newServer.name.trim()) return
+    const updated = [...specMcpServers, newServer]
+    updateMcpServersMutation.mutate(
+      { projectName, sessionName, mcpServers: updated },
+      {
+        onSuccess: () => {
+          toast.success(`Added MCP server "${newServer.name}"`)
+          setNewServer({ name: '', type: 'http' })
+          setShowAddForm(false)
+        },
+        onError: (error) => {
+          toast.error(error instanceof Error ? error.message : 'Failed to add MCP server')
+        },
+      }
+    )
+  }
+
+  const handleRemoveServer = (serverName: string) => {
+    const updated = specMcpServers.filter((s) => s.name !== serverName)
+    updateMcpServersMutation.mutate(
+      { projectName, sessionName, mcpServers: updated },
+      {
+        onSuccess: () => {
+          toast.success(`Removed MCP server "${serverName}"`)
+        },
+        onError: (error) => {
+          toast.error(error instanceof Error ? error.message : 'Failed to remove MCP server')
+        },
+      }
+    )
+  }
 
   useEffect(() => {
     if (mcpServers.length > 0) {
@@ -150,6 +204,7 @@ export function McpServersAccordion({
   const renderServerCard = (server: McpServer) => {
     const tools = server.tools ?? []
     const toolCount = tools.length
+    const isUserDefined = userServerNames.has(server.name)
 
     return (
       <div
@@ -162,6 +217,11 @@ export function McpServersAccordion({
               {getStatusIcon(server)}
             </div>
             <h4 className="font-medium text-sm">{server.displayName}</h4>
+            {isUserDefined && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                Custom
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-2 mt-1 ml-6">
             {server.version && (
@@ -195,8 +255,19 @@ export function McpServersAccordion({
             )}
           </div>
         </div>
-        <div className="flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {getStatusBadge(server)}
+          {isUserDefined && isStopped && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => handleRemoveServer(server.name)}
+              disabled={updateMcpServersMutation.isPending}
+            >
+              <Trash2 className="h-3 w-3 text-muted-foreground" />
+            </Button>
+          )}
         </div>
       </div>
     )
@@ -228,6 +299,145 @@ export function McpServersAccordion({
             <p className="text-xs text-muted-foreground py-2">
               No MCP servers available for this session.
             </p>
+          )}
+
+          {/* User-defined servers (shown when not running, from spec) */}
+          {isStopped && !isRunning && specMcpServers.length > 0 && mcpServers.length === 0 && (
+            specMcpServers.map((s) => (
+              <div
+                key={s.name}
+                className="flex items-start justify-between gap-3 p-3 border rounded-lg bg-background/50"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <h4 className="font-medium text-sm">{s.name}</h4>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">Custom</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5 ml-6">
+                    {s.type === 'stdio' ? `${s.command} ${(s.args ?? []).join(' ')}` : s.url ?? 'HTTP server'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Badge variant="outline" className="text-xs bg-muted text-muted-foreground border-border">
+                    Pending
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={() => handleRemoveServer(s.name)}
+                    disabled={updateMcpServersMutation.isPending}
+                  >
+                    <Trash2 className="h-3 w-3 text-muted-foreground" />
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+
+          {/* Add MCP Server form (stopped sessions only) */}
+          {isStopped && showAddForm && (
+            <div className="space-y-2 p-3 border rounded-lg bg-background/50">
+              <div className="flex items-end gap-2">
+                <div className="flex-1 space-y-1">
+                  <Label className="text-xs">Server Name</Label>
+                  <Input
+                    value={newServer.name}
+                    onChange={(e) => setNewServer({ ...newServer, name: e.target.value })}
+                    placeholder="my-server"
+                    disabled={updateMcpServersMutation.isPending}
+                  />
+                </div>
+                <div className="w-24 space-y-1">
+                  <Label className="text-xs">Type</Label>
+                  <Select
+                    value={newServer.type ?? 'http'}
+                    onValueChange={(v) => setNewServer({ ...newServer, type: v as 'http' | 'stdio' })}
+                    disabled={updateMcpServersMutation.isPending}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="http">HTTP</SelectItem>
+                      <SelectItem value="stdio">Stdio</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {(newServer.type ?? 'http') === 'http' && (
+                <div className="space-y-1">
+                  <Label className="text-xs">URL</Label>
+                  <Input
+                    value={newServer.url ?? ''}
+                    onChange={(e) => setNewServer({ ...newServer, url: e.target.value })}
+                    placeholder="https://my-mcp-server.example.com/mcp"
+                    disabled={updateMcpServersMutation.isPending}
+                  />
+                </div>
+              )}
+              {newServer.type === 'stdio' && (
+                <>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Command</Label>
+                    <Input
+                      value={newServer.command ?? ''}
+                      onChange={(e) => setNewServer({ ...newServer, command: e.target.value })}
+                      placeholder="uvx"
+                      disabled={updateMcpServersMutation.isPending}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Arguments</Label>
+                    <Input
+                      value={(newServer.args ?? []).join(' ')}
+                      onChange={(e) => setNewServer({
+                        ...newServer,
+                        args: e.target.value.split(' ').filter((a) => a.length > 0),
+                      })}
+                      placeholder="my-mcp-package --flag"
+                      disabled={updateMcpServersMutation.isPending}
+                    />
+                  </div>
+                </>
+              )}
+              <div className="flex gap-2 pt-1">
+                <Button
+                  size="sm"
+                  onClick={handleAddServer}
+                  disabled={!newServer.name.trim() || updateMcpServersMutation.isPending}
+                >
+                  {updateMcpServersMutation.isPending ? (
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  ) : null}
+                  Add
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setShowAddForm(false)
+                    setNewServer({ name: '', type: 'http' })
+                  }}
+                  disabled={updateMcpServersMutation.isPending}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {isStopped && !showAddForm && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowAddForm(true)}
+              className="w-full"
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Add MCP Server
+            </Button>
           )}
         </div>
       </AccordionContent>

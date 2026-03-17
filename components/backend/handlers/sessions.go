@@ -209,6 +209,49 @@ func parseSpec(spec map[string]interface{}) types.AgenticSessionSpec {
 		result.ActiveWorkflow = ws
 	}
 
+	// Parse mcpServers
+	if arr, ok := spec["mcpServers"].([]interface{}); ok {
+		servers := make([]types.McpServerConfig, 0, len(arr))
+		for _, it := range arr {
+			m, ok := it.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			s := types.McpServerConfig{}
+			if name, ok := m["name"].(string); ok {
+				s.Name = name
+			}
+			if t, ok := m["type"].(string); ok {
+				s.Type = t
+			}
+			if url, ok := m["url"].(string); ok {
+				s.URL = url
+			}
+			if cmd, ok := m["command"].(string); ok {
+				s.Command = cmd
+			}
+			if args, ok := m["args"].([]interface{}); ok {
+				for _, a := range args {
+					if str, ok := a.(string); ok {
+						s.Args = append(s.Args, str)
+					}
+				}
+			}
+			if env, ok := m["env"].(map[string]interface{}); ok {
+				s.Env = make(map[string]string, len(env))
+				for k, v := range env {
+					if str, ok := v.(string); ok {
+						s.Env[k] = str
+					}
+				}
+			}
+			if strings.TrimSpace(s.Name) != "" {
+				servers = append(servers, s)
+			}
+		}
+		result.McpServers = servers
+	}
+
 	return result
 }
 
@@ -811,6 +854,41 @@ func CreateSession(c *gin.Context) {
 		spec["activeWorkflow"] = workflowMap
 	}
 
+	// Set user-defined MCP servers if provided
+	if len(req.McpServers) > 0 {
+		spec := session["spec"].(map[string]interface{})
+		arr := make([]map[string]interface{}, 0, len(req.McpServers))
+		for _, s := range req.McpServers {
+			if strings.TrimSpace(s.Name) == "" {
+				continue
+			}
+			m := map[string]interface{}{"name": s.Name}
+			if s.Type != "" {
+				m["type"] = s.Type
+			}
+			if s.URL != "" {
+				m["url"] = s.URL
+			}
+			if s.Command != "" {
+				m["command"] = s.Command
+			}
+			if len(s.Args) > 0 {
+				m["args"] = s.Args
+			}
+			if len(s.Env) > 0 {
+				envMap := make(map[string]interface{}, len(s.Env))
+				for k, v := range s.Env {
+					envMap[k] = v
+				}
+				m["env"] = envMap
+			}
+			arr = append(arr, m)
+		}
+		if len(arr) > 0 {
+			spec["mcpServers"] = arr
+		}
+	}
+
 	// Add userContext from authenticated caller identity.
 	// Prefer forwarded headers (OAuth proxy); fall back to SelfSubjectReview
 	// for headless/API callers that authenticate directly with a bearer token.
@@ -1201,6 +1279,41 @@ func UpdateSession(c *gin.Context) {
 
 	if req.Timeout != nil {
 		spec["timeout"] = *req.Timeout
+	}
+
+	if req.McpServers != nil {
+		if len(*req.McpServers) == 0 {
+			delete(spec, "mcpServers")
+		} else {
+			arr := make([]map[string]interface{}, 0, len(*req.McpServers))
+			for _, s := range *req.McpServers {
+				if strings.TrimSpace(s.Name) == "" {
+					continue
+				}
+				m := map[string]interface{}{"name": s.Name}
+				if s.Type != "" {
+					m["type"] = s.Type
+				}
+				if s.URL != "" {
+					m["url"] = s.URL
+				}
+				if s.Command != "" {
+					m["command"] = s.Command
+				}
+				if len(s.Args) > 0 {
+					m["args"] = s.Args
+				}
+				if len(s.Env) > 0 {
+					envMap := make(map[string]interface{}, len(s.Env))
+					for k, v := range s.Env {
+						envMap[k] = v
+					}
+					m["env"] = envMap
+				}
+				arr = append(arr, m)
+			}
+			spec["mcpServers"] = arr
+		}
 	}
 
 	// Update the resource
