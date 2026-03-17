@@ -312,9 +312,18 @@ kustomize edit set image quay.io/ambient_code/vteam_claude_runner:latest=${DEFAU
 kustomize edit set image quay.io/ambient_code/vteam_state_sync:latest=${DEFAULT_STATE_SYNC_IMAGE}
 kustomize edit set image quay.io/ambient_code/vteam_api_server:latest=${DEFAULT_API_SERVER_IMAGE}
 
-# Build and apply manifests
+# Build and apply manifests, excluding ambient-api-server and public-api components (unused/in-development)
 echo -e "${BLUE}Building and applying manifests...${NC}"
-kustomize build . | oc apply -f -
+kustomize build . \
+    | yq 'select((.metadata.name | test("ambient-api-server|public-api")) | not)' \
+    | oc apply -f -
+
+# Ensure excluded resources are removed if they exist from a previous deploy
+echo -e "${BLUE}Removing excluded resources (ambient-api-server, public-api)...${NC}"
+oc delete deployment/ambient-api-server deployment/ambient-api-server-db deployment/public-api \
+    service/ambient-api-server service/ambient-api-server-db service/public-api-service \
+    route/ambient-api-server route/ambient-api-server-grpc route/public-api-route \
+    -n ${NAMESPACE} --ignore-not-found=true 2>/dev/null || true
 
 # Return to manifests root
 cd ../..
