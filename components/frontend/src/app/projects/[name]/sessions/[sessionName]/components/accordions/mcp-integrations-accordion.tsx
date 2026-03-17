@@ -35,8 +35,133 @@ import { toast } from 'sonner'
 import { useMcpStatus } from '@/services/queries/use-mcp'
 import { useIntegrationsStatus } from '@/services/queries/use-integrations'
 import { useUpdateSessionMcpServers } from '@/services/queries/use-sessions'
+import { useMCPServerStatus, useConnectMCPServer } from '@/services/queries/use-mcp-credentials'
 import type { McpServer, McpTool } from '@/services/api/sessions'
 import type { McpServerConfig } from '@/types/agentic-session'
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Extract credential field names from ${MCP_*} patterns in a server's env block. */
+function extractCredentialFields(server: McpServerConfig): string[] {
+  const env = server.env
+  if (!env) return []
+  const pattern = /\$\{MCP_[A-Z0-9_]+\}/g
+  const fields = new Set<string>()
+  for (const value of Object.values(env)) {
+    const matches = value.match(pattern)
+    if (matches) {
+      for (const m of matches) {
+        // Extract the field portion after MCP_{SERVERNAME}_ prefix
+        // e.g. ${MCP_MY_SERVER_API_KEY} -> api_key
+        const varName = m.slice(2, -1) // strip ${ and }
+        const sanitizedServer = server.name.toUpperCase().replace(/-/g, '_')
+        const prefix = `MCP_${sanitizedServer}_`
+        const fieldName = varName.startsWith(prefix)
+          ? varName.slice(prefix.length).toLowerCase()
+          : varName.slice(4).toLowerCase() // strip MCP_ as fallback
+        fields.add(fieldName)
+      }
+    }
+  }
+  return Array.from(fields)
+}
+
+// ─── Inline Credential Prompt ────────────────────────────────────────────────
+
+function McpCredentialPrompt({ serverName, fields }: { serverName: string; fields: string[] }) {
+  const { data: status } = useMCPServerStatus(serverName)
+  const connectMutation = useConnectMCPServer(serverName)
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({})
+  const [expanded, setExpanded] = useState(false)
+
+  if (fields.length === 0) return null
+
+  const isConnected = status?.connected ?? false
+
+  if (isConnected && !expanded) {
+    return (
+      <div className="flex items-center gap-2 ml-6 mt-1">
+        <CheckCircle2 className="h-3 w-3 text-green-600" />
+        <span className="text-[10px] text-muted-foreground">Credentials configured</span>
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="text-[10px] text-primary hover:underline"
+        >
+          Update
+        </button>
+      </div>
+    )
+  }
+
+  const handleSave = () => {
+    const missing = fields.filter((f) => !fieldValues[f]?.trim())
+    if (missing.length > 0) {
+      toast.error('Please fill in all credential fields')
+      return
+    }
+    connectMutation.mutate(
+      { fields: fieldValues },
+      {
+        onSuccess: () => {
+          toast.success(`Credentials saved for ${serverName}`)
+          setExpanded(false)
+          setFieldValues({})
+        },
+        onError: (error: Error) => {
+          toast.error(error.message || 'Failed to save credentials')
+        },
+      }
+    )
+  }
+
+  return (
+    <div className="ml-6 mt-2 space-y-2 p-2 border rounded bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800">
+      {!isConnected && (
+        <p className="text-[10px] text-amber-700 dark:text-amber-400">
+          This server requires credentials. They will be injected securely at runtime.
+        </p>
+      )}
+      {(expanded || !isConnected) && (
+        <>
+          {fields.map((field) => (
+            <div key={field} className="space-y-0.5">
+              <Label className="text-[10px]">{field}</Label>
+              <Input
+                type="password"
+                value={fieldValues[field] ?? ''}
+                onChange={(e) => setFieldValues((prev) => ({ ...prev, [field]: e.target.value }))}
+                placeholder={`Enter ${field}...`}
+                className="h-7 text-xs"
+                disabled={connectMutation.isPending}
+              />
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="h-6 text-[10px] px-2"
+              onClick={handleSave}
+              disabled={connectMutation.isPending || fields.some((f) => !fieldValues[f]?.trim())}
+            >
+              {connectMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save Credentials'}
+            </Button>
+            {expanded && isConnected && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 text-[10px] px-2"
+                onClick={() => { setExpanded(false); setFieldValues({}) }}
+              >
+                Cancel
+              </Button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
 // ─── MCP Servers Accordion ───────────────────────────────────────────────────
 
@@ -205,70 +330,77 @@ export function McpServersAccordion({
     const tools = server.tools ?? []
     const toolCount = tools.length
     const isUserDefined = userServerNames.has(server.name)
+    const specServer = specMcpServers.find((s) => s.name === server.name)
+    const credentialFields = specServer ? extractCredentialFields(specServer) : []
 
     return (
       <div
         key={server.name}
-        className="flex items-start justify-between gap-3 p-3 border rounded-lg bg-background/50"
+        className="p-3 border rounded-lg bg-background/50"
       >
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <div className="flex-shrink-0">
-              {getStatusIcon(server)}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <div className="flex-shrink-0">
+                {getStatusIcon(server)}
+              </div>
+              <h4 className="font-medium text-sm">{server.displayName}</h4>
+              {isUserDefined && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                  Custom
+                </Badge>
+              )}
             </div>
-            <h4 className="font-medium text-sm">{server.displayName}</h4>
-            {isUserDefined && (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                Custom
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-2 mt-1 ml-6">
-            {server.version && (
-              <span className="text-[10px] text-muted-foreground">v{server.version}</span>
-            )}
-            {toolCount > 0 && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            <div className="flex items-center gap-2 mt-1 ml-6">
+              {server.version && (
+                <span className="text-[10px] text-muted-foreground">v{server.version}</span>
+              )}
+              {toolCount > 0 && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <Info className="h-3 w-3" />
+                      <span>{toolCount} {toolCount === 1 ? 'tool' : 'tools'}</span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    className="w-80 p-0"
                   >
-                    <Info className="h-3 w-3" />
-                    <span>{toolCount} {toolCount === 1 ? 'tool' : 'tools'}</span>
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent
-                  align="start"
-                  className="w-80 p-0"
-                >
-                  <div className="px-3 py-2.5 border-b bg-muted/30">
-                    <p className="text-xs font-medium">
-                      {server.displayName} — {toolCount} {toolCount === 1 ? 'tool' : 'tools'}
-                    </p>
-                  </div>
-                  <div className="max-h-72 overflow-y-auto">
-                    {tools.map((tool) => renderToolRow(tool))}
-                  </div>
-                </PopoverContent>
-              </Popover>
+                    <div className="px-3 py-2.5 border-b bg-muted/30">
+                      <p className="text-xs font-medium">
+                        {server.displayName} — {toolCount} {toolCount === 1 ? 'tool' : 'tools'}
+                      </p>
+                    </div>
+                    <div className="max-h-72 overflow-y-auto">
+                      {tools.map((tool) => renderToolRow(tool))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {getStatusBadge(server)}
+            {isUserDefined && isStopped && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => handleRemoveServer(server.name)}
+                disabled={updateMcpServersMutation.isPending}
+              >
+                <Trash2 className="h-3 w-3 text-muted-foreground" />
+              </Button>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {getStatusBadge(server)}
-          {isUserDefined && isStopped && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={() => handleRemoveServer(server.name)}
-              disabled={updateMcpServersMutation.isPending}
-            >
-              <Trash2 className="h-3 w-3 text-muted-foreground" />
-            </Button>
-          )}
-        </div>
+        {isUserDefined && credentialFields.length > 0 && (
+          <McpCredentialPrompt serverName={server.name} fields={credentialFields} />
+        )}
       </div>
     )
   }
@@ -303,37 +435,45 @@ export function McpServersAccordion({
 
           {/* User-defined servers (shown when not running, from spec) */}
           {isStopped && !isRunning && specMcpServers.length > 0 && mcpServers.length === 0 && (
-            specMcpServers.map((s) => (
-              <div
-                key={s.name}
-                className="flex items-start justify-between gap-3 p-3 border rounded-lg bg-background/50"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    <h4 className="font-medium text-sm">{s.name}</h4>
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">Custom</Badge>
+            specMcpServers.map((s) => {
+              const credFields = extractCredentialFields(s)
+              return (
+                <div
+                  key={s.name}
+                  className="p-3 border rounded-lg bg-background/50"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <h4 className="font-medium text-sm">{s.name}</h4>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">Custom</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 ml-6">
+                        {s.type === 'stdio' ? `${s.command} ${(s.args ?? []).join(' ')}` : s.url ?? 'HTTP server'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <Badge variant="outline" className="text-xs bg-muted text-muted-foreground border-border">
+                        Pending
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => handleRemoveServer(s.name)}
+                        disabled={updateMcpServersMutation.isPending}
+                      >
+                        <Trash2 className="h-3 w-3 text-muted-foreground" />
+                      </Button>
+                    </div>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5 ml-6">
-                    {s.type === 'stdio' ? `${s.command} ${(s.args ?? []).join(' ')}` : s.url ?? 'HTTP server'}
-                  </p>
+                  {credFields.length > 0 && (
+                    <McpCredentialPrompt serverName={s.name} fields={credFields} />
+                  )}
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <Badge variant="outline" className="text-xs bg-muted text-muted-foreground border-border">
-                    Pending
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={() => handleRemoveServer(s.name)}
-                    disabled={updateMcpServersMutation.isPending}
-                  >
-                    <Trash2 className="h-3 w-3 text-muted-foreground" />
-                  </Button>
-                </div>
-              </div>
-            ))
+              )
+            })
           )}
 
           {/* Add MCP Server form (stopped sessions only) */}
@@ -402,6 +542,58 @@ export function McpServersAccordion({
                   </div>
                 </>
               )}
+              {/* Environment variables (both types) */}
+              <div className="space-y-1">
+                <Label className="text-xs">Environment Variables</Label>
+                {Object.entries(newServer.env ?? {}).map(([key, val]) => (
+                  <div key={key} className="flex gap-1 items-center">
+                    <Input
+                      value={key}
+                      className="h-7 text-xs flex-1"
+                      placeholder="VAR_NAME"
+                      disabled={updateMcpServersMutation.isPending}
+                      onChange={(e) => {
+                        const env = { ...(newServer.env ?? {}) }
+                        const oldVal = env[key]
+                        delete env[key]
+                        if (e.target.value) env[e.target.value] = oldVal
+                        setNewServer({ ...newServer, env })
+                      }}
+                    />
+                    <Input
+                      value={val}
+                      className="h-7 text-xs flex-1"
+                      placeholder="${MCP_SERVER_FIELD}"
+                      disabled={updateMcpServersMutation.isPending}
+                      onChange={(e) => {
+                        setNewServer({ ...newServer, env: { ...(newServer.env ?? {}), [key]: e.target.value } })
+                      }}
+                    />
+                    <Button
+                      type="button" variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0"
+                      onClick={() => {
+                        const env = { ...(newServer.env ?? {}) }
+                        delete env[key]
+                        setNewServer({ ...newServer, env: Object.keys(env).length > 0 ? env : undefined })
+                      }}
+                      disabled={updateMcpServersMutation.isPending}
+                    >
+                      <Trash2 className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button" variant="outline" size="sm" className="h-6 text-[10px]"
+                  onClick={() => setNewServer({ ...newServer, env: { ...(newServer.env ?? {}), '': '' } })}
+                  disabled={updateMcpServersMutation.isPending}
+                >
+                  <Plus className="h-3 w-3 mr-0.5" /> Add Variable
+                </Button>
+                <p className="text-[10px] text-muted-foreground">
+                  Use <code className="text-[10px]">{'${MCP_SERVER_FIELD}'}</code> for credentials fetched at runtime.
+                </p>
+              </div>
+
               <div className="flex gap-2 pt-1">
                 <Button
                   size="sm"

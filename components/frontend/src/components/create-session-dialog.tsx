@@ -448,6 +448,58 @@ export function CreateSessionDialog({
                           </div>
                         </>
                       )}
+
+                      {/* Environment variables (both types) */}
+                      <div className="space-y-1">
+                        <FormLabel className="text-xs">Environment Variables</FormLabel>
+                        {Object.entries(server.env ?? {}).map(([key, val]) => (
+                          <div key={key} className="flex gap-1 items-center">
+                            <Input
+                              value={key}
+                              className="h-7 text-xs flex-1"
+                              placeholder="VAR_NAME"
+                              disabled={createSessionMutation.isPending}
+                              onChange={(e) => {
+                                const env = { ...(server.env ?? {}) };
+                                const oldVal = env[key];
+                                delete env[key];
+                                if (e.target.value) env[e.target.value] = oldVal;
+                                updateMcpServer(index, { env });
+                              }}
+                            />
+                            <Input
+                              value={val}
+                              className="h-7 text-xs flex-1"
+                              placeholder="${MCP_SERVER_FIELD}"
+                              disabled={createSessionMutation.isPending}
+                              onChange={(e) => {
+                                updateMcpServer(index, { env: { ...(server.env ?? {}), [key]: e.target.value } });
+                              }}
+                            />
+                            <Button
+                              type="button" variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0"
+                              onClick={() => {
+                                const env = { ...(server.env ?? {}) };
+                                delete env[key];
+                                updateMcpServer(index, { env: Object.keys(env).length > 0 ? env : undefined });
+                              }}
+                              disabled={createSessionMutation.isPending}
+                            >
+                              <Trash2 className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                          </div>
+                        ))}
+                        <Button
+                          type="button" variant="outline" size="sm" className="h-6 text-xs"
+                          onClick={() => updateMcpServer(index, { env: { ...(server.env ?? {}), "": "" } })}
+                          disabled={createSessionMutation.isPending}
+                        >
+                          <Plus className="h-3 w-3 mr-0.5" /> Add Variable
+                        </Button>
+                        <p className="text-[10px] text-muted-foreground">
+                          Use <code className="text-[10px]">{"${MCP_SERVER_FIELD}"}</code> for credentials fetched securely at runtime.
+                        </p>
+                      </div>
                     </div>
                   ))}
                   <Button
