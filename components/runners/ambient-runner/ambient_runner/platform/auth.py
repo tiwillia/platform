@@ -329,25 +329,40 @@ async def _fetch_mcp_credentials(context: RunnerContext, server_name: str) -> di
     return data
 
 
-async def populate_mcp_server_credentials(context: RunnerContext) -> None:
+async def populate_mcp_server_credentials(context: RunnerContext, cwd_path: str = "") -> None:
     """Fetch and inject credentials for MCP servers that use ${MCP_*} env var patterns.
 
-    Reads the raw .mcp.json to find servers with env blocks referencing
-    ${MCP_*} variables, fetches credentials from the backend, and sets
-    the corresponding environment variables before env var expansion.
-    """
-    mcp_config_file = os.getenv("MCP_CONFIG_FILE", "/app/ambient-runner/.mcp.json")
-    config_path = Path(mcp_config_file)
-    if not config_path.exists():
-        return
+    Reads .mcp.json files (runner built-in + project/workflow) to find
+    servers with env blocks referencing ${MCP_*} variables, fetches
+    credentials from the backend, and sets the corresponding environment
+    variables before env var expansion.
 
-    try:
-        with open(config_path, "r") as f:
-            config = _json.load(f)
-        mcp_servers = config.get("mcpServers", {})
-    except Exception as e:
-        logger.warning(f"Failed to read MCP config for credential population: {e}")
-        return
+    Args:
+        context: Runner context.
+        cwd_path: Working directory (workflow root) to scan for a project
+            .mcp.json alongside the runner's built-in config.
+    """
+    mcp_servers: dict = {}
+
+    # 1. Runner built-in .mcp.json
+    runner_mcp = os.getenv("MCP_CONFIG_FILE", "/app/ambient-runner/.mcp.json")
+    runner_path = Path(runner_mcp)
+    if runner_path.exists():
+        try:
+            with open(runner_path, "r") as f:
+                mcp_servers.update(_json.load(f).get("mcpServers", {}))
+        except Exception as e:
+            logger.warning(f"Failed to read runner MCP config for credential population: {e}")
+
+    # 2. Project / workflow .mcp.json
+    if cwd_path:
+        project_mcp = Path(cwd_path) / ".mcp.json"
+        if project_mcp.exists() and str(project_mcp) != runner_mcp:
+            try:
+                with open(project_mcp, "r") as f:
+                    mcp_servers.update(_json.load(f).get("mcpServers", {}))
+            except Exception as e:
+                logger.warning(f"Failed to read project MCP config for credential population: {e}")
 
     mcp_env_pattern = re.compile(r"\$\{(MCP_[A-Z0-9_]+)")
 
@@ -381,6 +396,34 @@ async def populate_mcp_server_credentials(context: RunnerContext) -> None:
                 logger.info(f"Set {env_key} for MCP server {server_name}")
         except Exception as e:
             logger.warning(f"Failed to fetch MCP credentials for {server_name}: {e}")
+
+    # Also scan user-defined MCP servers from MCP_SERVERS_JSON
+    from ambient_runner.platform.config import get_user_mcp_servers
+
+    user_servers = get_user_mcp_servers()
+    for server in user_servers:
+        server_name = server.get("name", "").strip()
+        env_block = server.get("env", {})
+        if not server_name or not env_block:
+            continue
+        needs_creds = any(
+            isinstance(v, str) and mcp_env_pattern.search(v) for v in env_block.values()
+        )
+        if not needs_creds:
+            continue
+        try:
+            data = await _fetch_mcp_credentials(context, server_name)
+            fields = data.get("fields", {})
+            if not fields:
+                logger.warning(f"No MCP credentials found for user server {server_name}")
+                continue
+            sanitized_name = server_name.upper().replace("-", "_")
+            for field_name, field_value in fields.items():
+                env_key = f"MCP_{sanitized_name}_{field_name.upper()}"
+                os.environ[env_key] = field_value
+                logger.info(f"Set {env_key} for user MCP server {server_name}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch MCP credentials for user server {server_name}: {e}")
 
 
 async def configure_git_identity(user_name: str, user_email: str) -> None:

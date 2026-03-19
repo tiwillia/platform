@@ -43,36 +43,79 @@ def load_ambient_config(cwd_path: str) -> dict:
         return {}
 
 
+def _load_mcp_file(path: str) -> Optional[dict]:
+    """Load and parse a single .mcp.json file, returning raw mcpServers dict.
+
+    Returns:
+        Dict of MCP server configs (not yet env-expanded), or None.
+    """
+    mcp_file = Path(path)
+    if not mcp_file.exists() or not mcp_file.is_file():
+        return None
+    try:
+        with open(mcp_file, "r") as f:
+            config = _json.load(f)
+        servers = config.get("mcpServers", {})
+        if servers:
+            logger.info(f"Loaded {len(servers)} MCP server(s) from {mcp_file}")
+        return servers
+    except _json.JSONDecodeError as e:
+        logger.error(f"Failed to parse MCP config at {mcp_file}: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Error loading MCP config at {mcp_file}: {e}")
+        return None
+
+
 def load_mcp_config(context: RunnerContext, cwd_path: str) -> Optional[dict]:
-    """Load MCP server configuration from the ambient runner's .mcp.json file.
+    """Load MCP server configuration from runner and project .mcp.json files.
+
+    Reads the runner's built-in .mcp.json as a base, then merges any
+    .mcp.json found in ``cwd_path`` (e.g. a workflow root) on top so
+    that project-level servers can extend or override the defaults.
 
     Returns:
         Dict of MCP server configs with env vars expanded, or None.
     """
+    # 1. Runner built-in .mcp.json (base)
+    runner_path = context.get_env(
+        "MCP_CONFIG_FILE", "/app/ambient-runner/.mcp.json"
+    )
+    merged = _load_mcp_file(runner_path) or {}
+
+    # 2. Project / workflow .mcp.json (override by server name)
+    cwd_mcp_path = str(Path(cwd_path) / ".mcp.json")
+    if cwd_mcp_path != runner_path:
+        project_servers = _load_mcp_file(cwd_mcp_path)
+        if project_servers:
+            merged.update(project_servers)
+            logger.info(
+                f"Merged {len(project_servers)} project MCP server(s) from {cwd_mcp_path}"
+            )
+
+    if not merged:
+        logger.info("No MCP servers found in runner or project config")
+        return None
+
+    expanded = expand_env_vars(merged)
+    logger.info(f"Expanded MCP config env vars for {len(expanded)} servers")
+    return expanded
+
+
+def get_user_mcp_servers() -> list[dict]:
+    """Read user-defined MCP servers from MCP_SERVERS_JSON env var."""
+    raw = os.environ.get("MCP_SERVERS_JSON", "").strip()
+    if not raw:
+        return []
     try:
-        mcp_config_file = context.get_env(
-            "MCP_CONFIG_FILE", "/app/ambient-runner/.mcp.json"
-        )
-        runner_mcp_file = Path(mcp_config_file)
-
-        if runner_mcp_file.exists() and runner_mcp_file.is_file():
-            logger.info(f"Loading MCP config from: {runner_mcp_file}")
-            with open(runner_mcp_file, "r") as f:
-                config = _json.load(f)
-                mcp_servers = config.get("mcpServers", {})
-                expanded = expand_env_vars(mcp_servers)
-                logger.info(f"Expanded MCP config env vars for {len(expanded)} servers")
-                return expanded
-        else:
-            logger.info(f"No MCP config file found at: {runner_mcp_file}")
-            return None
-
+        servers = _json.loads(raw)
+        if isinstance(servers, list):
+            logger.info(f"Loaded {len(servers)} user-defined MCP servers from MCP_SERVERS_JSON")
+            return servers
+        return []
     except _json.JSONDecodeError as e:
-        logger.error(f"Failed to parse MCP config: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"Error loading MCP config: {e}")
-        return None
+        logger.error(f"Failed to parse MCP_SERVERS_JSON: {e}")
+        return []
 
 
 def get_repos_config() -> list[dict]:

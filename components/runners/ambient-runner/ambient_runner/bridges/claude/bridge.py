@@ -336,15 +336,15 @@ class ClaudeBridge(PlatformBridge):
             self._context
         )
 
-        # Populate credentials before building system prompt (prompt checks env vars)
-        await populate_runtime_credentials(self._context)
-        await populate_mcp_server_credentials(self._context)
-        self._last_creds_refresh = time.monotonic()
-
-        # Workspace paths
+        # Workspace paths (resolved early so cwd_path is available for MCP scanning)
         cwd_path, add_dirs = resolve_workspace_paths(self._context)
         if add_dirs:
             os.environ["CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"] = "1"
+
+        # Populate credentials before building system prompt (prompt checks env vars)
+        await populate_runtime_credentials(self._context)
+        await populate_mcp_server_credentials(self._context, cwd_path)
+        self._last_creds_refresh = time.monotonic()
 
         # Observability (shared helper, before MCP so rubric tool can access it)
         self._obs = await setup_bridge_observability(self._context, configured_model)

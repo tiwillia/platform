@@ -346,6 +346,31 @@ export function useUpdateSessionDisplayName() {
 }
 
 /**
+ * Hook to update a session's MCP servers (only when stopped)
+ */
+export function useUpdateSessionMcpServers() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      projectName,
+      sessionName,
+      mcpServers,
+    }: {
+      projectName: string;
+      sessionName: string;
+      mcpServers: import("@/types/agentic-session").McpServerConfig[];
+    }) => sessionsApi.updateSessionMcpServers(projectName, sessionName, mcpServers),
+    onSuccess: (_data, { projectName, sessionName }) => {
+      queryClient.invalidateQueries({
+        queryKey: sessionKeys.detail(projectName, sessionName),
+        refetchType: 'all',
+      });
+    },
+  });
+}
+
+/**
  * Hook to fetch session export data (AG-UI events + legacy messages)
  */
 export function useSessionExport(projectName: string, sessionName: string, enabled: boolean) {
