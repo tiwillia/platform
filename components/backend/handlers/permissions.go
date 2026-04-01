@@ -434,10 +434,18 @@ func CreateProjectKey(c *gin.Context) {
 		return
 	}
 
-	// Issue a one-time JWT token for this ServiceAccount (no audience; used as API key)
-	tokenSpec := authnv1.TokenRequestSpec{}
-	if req.ExpirationSeconds != nil && *req.ExpirationSeconds > 0 {
-		tokenSpec.ExpirationSeconds = req.ExpirationSeconds
+	// Issue a token for this ServiceAccount via the TokenRequest API.
+	// When no expiration is requested, use a 10-year lifetime instead of
+	// omitting ExpirationSeconds (which defaults to 1h). We avoid creating
+	// a kubernetes.io/service-account-token Secret because it persists the
+	// token in the cluster where any principal with Secrets access can read it.
+	var nonExpiringSeconds int64 = 315360000 // 10 years
+	expirationSeconds := &nonExpiringSeconds
+	if req.ExpirationSeconds != nil {
+		expirationSeconds = req.ExpirationSeconds
+	}
+	tokenSpec := authnv1.TokenRequestSpec{
+		ExpirationSeconds: expirationSeconds,
 	}
 	tr := &authnv1.TokenRequest{Spec: tokenSpec}
 	tok, err := k8sClient.CoreV1().ServiceAccounts(projectName).CreateToken(context.TODO(), saName, tr, v1.CreateOptions{})
